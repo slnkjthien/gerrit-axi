@@ -1,0 +1,119 @@
+{
+  "_comment": [
+    "Submit-record scenarios for the readiness oracle. Every label name here is",
+    "invented on purpose: nothing in src/core/ may recognise a label by name, so",
+    "these fixtures use names no real server would ship with.",
+    "Per Gerrit's schema a label status is one of OK / NEED / MAY / REJECT /",
+    "IMPOSSIBLE, and the overall record status is OK / NOT_READY / RULE_ERROR /",
+    "CLOSED / FORCED."
+  ],
+
+  "singleRecordBlocked": {
+    "number": 1,
+    "project": "acme/one",
+    "submitRecords": [
+      {
+        "status": "NOT_READY",
+        "labels": [
+          { "label": "Quokka-Review", "status": "OK", "by": { "username": "grace" } },
+          { "label": "Xylophone-Gate", "status": "NEED" },
+          { "label": "Yak-Shave", "status": "MAY" }
+        ]
+      }
+    ]
+  },
+
+  "singleRecordRejected": {
+    "number": 2,
+    "project": "acme/two",
+    "submitRecords": [
+      {
+        "status": "NOT_READY",
+        "labels": [
+          { "label": "Quokka-Review", "status": "REJECT", "by": { "username": "alan" } },
+          { "label": "Xylophone-Gate", "status": "OK", "by": { "username": "buildbot" } }
+        ]
+      }
+    ]
+  },
+
+  "submittable": {
+    "number": 3,
+    "project": "acme/three",
+    "submitRecords": [
+      {
+        "status": "OK",
+        "labels": [
+          { "label": "Quokka-Review", "status": "OK", "by": { "username": "grace" } },
+          { "label": "Xylophone-Gate", "status": "OK", "by": { "username": "buildbot" } }
+        ]
+      }
+    ]
+  },
+
+  "twoRecordsWorstWins": {
+    "number": 4,
+    "project": "acme/four",
+    "submitRecords": [
+      {
+        "status": "OK",
+        "labels": [
+          { "label": "Quokka-Review", "status": "OK", "by": { "username": "grace" } }
+        ]
+      },
+      {
+        "status": "NOT_READY",
+        "labels": [
+          { "label": "Quokka-Review", "status": "REJECT", "by": { "username": "alan" } },
+          { "label": "Zebu-Herding", "status": "NEED" }
+        ]
+      }
+    ]
+  },
+
+  "impossible": {
+    "number": 5,
+    "project": "acme/five",
+    "submitRecords": [
+      {
+        "status": "NOT_READY",
+        "labels": [{ "label": "Nonexistent-Label", "status": "IMPOSSIBLE" }]
+      }
+    ]
+  },
+
+  "ruleError": {
+    "number": 6,
+    "project": "acme/six",
+    "submitRecords": [
+      {
+        "status": "RULE_ERROR",
+        "errorMessage": "Invalid project configuration: submit rule threw",
+        "labels": []
+      }
+    ]
+  },
+
+  "closed": {
+    "number": 7,
+    "project": "acme/seven",
+    "status": "MERGED",
+    "submitRecords": [{ "status": "CLOSED", "labels": [] }]
+  },
+
+  "noRecords": {
+    "number": 8,
+    "project": "acme/eight"
+  },
+
+  "unknownLabelStatus": {
+    "number": 9,
+    "project": "acme/nine",
+    "submitRecords": [
+      {
+        "status": "NOT_READY",
+        "labels": [{ "label": "Future-Status-Label", "status": "SOMETHING_NEW" }]
+      }
+    ]
+  }
+}
