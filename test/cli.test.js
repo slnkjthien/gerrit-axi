@@ -137,6 +137,33 @@ test('outside a Gerrit repo with no config, the host is unresolved and the fix i
   assert.match(stderr.text, /--host/);
 });
 
+test('inside a repo hosted somewhere other than Gerrit, nothing is dialled', async () => {
+  // The regression this guards: a non-Gerrit remote used to parse cleanly, be
+  // trusted, and cost ten seconds of SSH connect timeout at a port nobody serves.
+  const stdout = captureStream();
+  const stderr = captureStream();
+  const runner = fakeRunner([
+    {
+      match: (f, a) => f === 'git' && a.includes('remote'),
+      result: { stdout: 'git@github.com:owner/repo.git\n' },
+    },
+  ]);
+  const code = await main(['status'], {
+    cwd: '/some/checkout',
+    env: ENV,
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+    stdin: /** @type {any} */ ({ isTTY: false }),
+    runner,
+  });
+
+  assert.equal(code, EXIT.config);
+  assert.equal(runner.calls.some((c) => c.file === 'ssh'), false, 'must not have dialled anything');
+  assert.match(stderr.text, /cannot determine the Gerrit host/);
+  assert.match(stderr.text, /is not a Gerrit remote/);
+  assert.match(stderr.text, /GERRIT_HOST/);
+});
+
 test('gerrit comments renders inline comments and marks the machine-generated ones', async () => {
   const stdout = captureStream();
   const stderr = captureStream();

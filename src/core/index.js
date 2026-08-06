@@ -32,7 +32,13 @@ export {
   resolveConfig,
 } from './config.js';
 
-export { DEFAULT_SSH_PORT, parseRemoteUrl, readGitRemoteUrl } from './remote.js';
+export {
+  DEFAULT_SSH_PORT,
+  acceptGerritRemote,
+  gerritRepoEvidence,
+  parseRemoteUrl,
+  readGitRemoteUrl,
+} from './remote.js';
 
 export { authStatus, loginWithToken, logout, tokenSettingsUrl } from './auth.js';
 

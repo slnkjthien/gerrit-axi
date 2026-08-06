@@ -21,6 +21,11 @@ fails if any of them is broken, which is the intended way to find out.
   usage text are the only exception). Host/port/user/project come from the
   `origin` git remote, then env, then config file — see the three-tier model in
   README.md.
+- The git-remote tier answers only for a remote recognised as Gerrit's, by URL
+  shape plus (for ambiguous shapes) corroborating repo evidence — never a forge
+  deny-list, which the no-hostname-literal rule forbids anyway. Rejected remotes
+  drop host/port/user/project as a unit; see `acceptGerritRemote` in
+  `src/core/remote.js` and the tests in `test/config.test.js`.
 - No label name is ever hardcoded. Readiness comes from the server's submit
   records via `deriveReadiness` in `src/core/changes.js`; `test/readiness.test.js`
   greps core to enforce it.

@@ -149,10 +149,11 @@ ordinary comments — *not* Gerrit's separate robot-comments API — and they ca
 Host, port, user and project are resolved in this order, highest first:
 
 1. **Explicit flags** — `--host`, `--user`, `--port`, `--rest-base`.
-2. **The `origin` git remote of the current directory.** This is the primary
-   source, the way `gh` and `glab` behave. A Gerrit SSH remote,
-   `ssh://<user>@<host>:29418/<project/path>`, yields all four at once. HTTPS clone
-   URLs and the scp-style `user@host:path` form are understood too.
+2. **The `origin` git remote of the current directory** — when it is recognisably
+   Gerrit's (see below). This is the primary source, the way `gh` and `glab`
+   behave. A Gerrit SSH remote, `ssh://<user>@<host>:29418/<project/path>`, yields
+   all four at once; Gerrit's authenticated HTTPS clone URL,
+   `https://<host>/a/<project/path>`, yields host, user, project and the REST base.
 3. **Environment variables** — `GERRIT_HOST`, `GERRIT_USER`, `GERRIT_PORT`,
    `GERRIT_REST_BASE`.
 4. **The config file** (see below).
@@ -160,6 +161,41 @@ Host, port, user and project are resolved in this order, highest first:
 The remote outranks the environment deliberately: the repo you are standing in
 identifies the server you mean, and a stale exported `GERRIT_HOST` should not
 silently redirect a question about it. `--host` is the escape hatch.
+
+**A remote that is not Gerrit's contributes nothing at all.** Every addressable
+remote URL *parses*, including one belonging to a forge that does not speak Gerrit;
+trusting it means an SSH connection to a port nobody serves and ten seconds of
+silence before the failure. The remote is therefore judged by its shape — not
+against a list of known forges, which would fail open for every forge not on it:
+
+| Remote | Verdict |
+| --- | --- |
+| `ssh://<user>@<host>:<port>/<project>` | Gerrit — it advertises its sshd port |
+| `https://<host>/a/<project>` | Gerrit — the `/a/` authenticated prefix |
+| `ssh://<user>@<host>/<project>` (no port) | ambiguous — needs corroboration |
+| `https://<host>/<project>` (no `/a/`) | ambiguous — needs corroboration |
+| `<user>@<host>:<project>` (scp-style) | not Gerrit — it publishes no such URL |
+
+An ambiguous URL is a shape Gerrit and everyone else both hand out, so the repo
+itself is asked to corroborate: a refspec aimed at `refs/for/`, or the `commit-msg`
+hook Gerrit tells you to install, recognisable because stamping `Change-Id` is the
+whole reason it exists. Without one of those, the remote is ignored.
+
+Ignored means *ignored as a unit*: host, port, user and project all come from that
+one URL, so they fall away together and resolution continues at the environment.
+Nothing from another forge is ever mixed into an environment-supplied host. In a
+GitHub checkout with nothing configured you get the unresolved-host error below
+immediately, with one extra line naming what happened:
+
+```console
+$ gerrit status
+error: cannot determine the Gerrit host
+
+This repo's git remote (git@github.com:owner/repo.git) is not a Gerrit remote, so it was ignored.
+
+Do one of the following:
+  ...
+```
 
 **There is no built-in default hostname anywhere in the codebase** — a test
 enforces that too. Outside a Gerrit repo with no configuration, the tool says it

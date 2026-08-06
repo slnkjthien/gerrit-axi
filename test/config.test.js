@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { DEFAULT_SSH_PORT, parseRemoteUrl, readGitRemoteUrl } from '../src/core/remote.js';
+import {
+  DEFAULT_SSH_PORT,
+  acceptGerritRemote,
+  parseRemoteUrl,
+  readGitRemoteUrl,
+} from '../src/core/remote.js';
 import { resolveConfig } from '../src/core/config.js';
 import { ConfigError } from '../src/core/errors.js';
 import { fakeRunner } from './helpers.js';
@@ -21,6 +26,7 @@ test('parses a Gerrit SSH remote into host, port, user and project', () => {
     project: 'acme/apps/widget-console',
     scheme: 'ssh',
     restBase: null,
+    shape: 'gerrit',
   });
 });
 
@@ -63,6 +69,211 @@ test('unaddressable remotes parse to null rather than a guess', () => {
   assert.equal(parseRemoteUrl(null), null);
   assert.equal(parseRemoteUrl('/srv/git/local-repo.git'), null);
   assert.equal(parseRemoteUrl('file:///srv/git/local-repo.git'), null);
+});
+
+test('a remote URL is classified by how Gerrit-shaped it is', () => {
+  // Gerrit advertises its sshd port, and its authenticated HTTP clone URL carries
+  // the /a/ prefix. Only Gerrit publishes either.
+  assert.equal(parseRemoteUrl('ssh://ada@gerrit.example.com:29418/acme/one')?.shape, 'gerrit');
+  assert.equal(parseRemoteUrl('ssh://ada@review.example.org:2222/acme/one')?.shape, 'gerrit');
+  assert.equal(parseRemoteUrl('https://ada@gerrit.example.com/a/acme/one')?.shape, 'gerrit');
+  assert.equal(parseRemoteUrl('http://gerrit.example.com/a/acme/one.git')?.shape, 'gerrit');
+
+  // Shapes Gerrit publishes but so does everyone else: not trusted on their own.
+  assert.equal(parseRemoteUrl('ssh://git@github.com/owner/repo.git')?.shape, 'ambiguous');
+  assert.equal(parseRemoteUrl('https://github.com/owner/repo.git')?.shape, 'ambiguous');
+  assert.equal(parseRemoteUrl('https://gerrit.example.com/acme/one')?.shape, 'ambiguous');
+
+  // Gerrit does not publish the scp-style form at all, and it cannot say a port.
+  assert.equal(parseRemoteUrl('git@github.com:owner/repo.git')?.shape, 'foreign');
+  assert.equal(parseRemoteUrl('ada@gerrit.example.com:acme/one.git')?.shape, 'foreign');
+});
+
+test('an scp-style GitHub remote contributes nothing and the environment answers', async () => {
+  const config = await resolveConfig({}, {
+    env: { XDG_CONFIG_HOME: '/nonexistent', GERRIT_HOST: 'gerrit.example.com', GERRIT_USER: 'ada' },
+    remoteUrl: 'git@github.com:owner/repo.git',
+    readFile: NO_CONFIG_FILE,
+    // Nothing may be probed: the shape alone settles it, so an unexpected
+    // subprocess here is a failure.
+    runner: fakeRunner([]),
+  });
+
+  assert.equal(config.host, 'gerrit.example.com');
+  assert.equal(config.sources.host, 'env');
+  // The remote's fields fall away as a unit -- no 'git' user, no 'owner/repo'.
+  assert.equal(config.user, 'ada');
+  assert.equal(config.project, null);
+  assert.equal(config.port, 29418);
+  assert.equal(config.sources.port, 'derived');
+  assert.equal(config.restBase, 'https://gerrit.example.com');
+});
+
+test('an https GitHub remote with no corroborating repo evidence is ignored', async () => {
+  const config = await resolveConfig({}, {
+    env: { XDG_CONFIG_HOME: '/nonexistent', GERRIT_HOST: 'gerrit.example.com', GERRIT_USER: 'ada' },
+    remoteUrl: 'https://github.com/owner/repo.git',
+    readFile: NO_CONFIG_FILE,
+    runner: fakeRunner([
+      { match: (f, a) => f === 'git' && a.includes('--get-all'), result: { code: 1 } },
+      {
+        match: (f, a) => f === 'git' && a.includes('--git-path'),
+        result: { stdout: '.git/hooks/commit-msg\n' },
+      },
+    ]),
+    readRepoFile: async () => {
+      const err = new Error('ENOENT');
+      /** @type {any} */ (err).code = 'ENOENT';
+      throw err;
+    },
+  });
+
+  assert.equal(config.host, 'gerrit.example.com');
+  assert.equal(config.sources.host, 'env');
+  assert.equal(config.project, null);
+  // The rejected remote's own origin must not become the REST base either.
+  assert.equal(config.restBase, 'https://gerrit.example.com');
+});
+
+test('a rejected remote falls through to the config file when the environment is empty', async () => {
+  const config = await resolveConfig({}, {
+    env: { XDG_CONFIG_HOME: '/nonexistent' },
+    remoteUrl: 'git@github.com:owner/repo.git',
+    readFile: async () => JSON.stringify({ host: 'file.example.com', user: 'fileuser', port: 2300 }),
+    runner: fakeRunner([]),
+  });
+
+  assert.equal(config.host, 'file.example.com');
+  assert.equal(config.user, 'fileuser');
+  assert.equal(config.port, 2300);
+  assert.equal(config.sources.host, 'config-file');
+  assert.equal(config.project, null);
+});
+
+test('a rejected remote with nothing else configured says the remote was ignored', async () => {
+  await assert.rejects(
+    () => resolveConfig({}, {
+      env: { XDG_CONFIG_HOME: '/nonexistent' },
+      remoteUrl: 'git@github.com:owner/repo.git',
+      readFile: NO_CONFIG_FILE,
+      runner: fakeRunner([]),
+    }),
+    (err) => {
+      assert.ok(err instanceof ConfigError, 'must be a ConfigError');
+      assert.equal(err.code, 'HOST_UNRESOLVED');
+      // Named, so it does not read as though the repo had no remote at all...
+      assert.match(err.remedy, /git@github\.com:owner\/repo\.git/);
+      assert.match(err.remedy, /is not a Gerrit remote/);
+      // ...and the remedy block is still the whole of it.
+      assert.match(err.remedy, /GERRIT_HOST/);
+      assert.match(err.remedy, /config\.json/);
+      assert.match(err.remedy, /--host/);
+      return true;
+    },
+  );
+});
+
+test('the unresolved-host error stays silent about a remote when there is none', async () => {
+  await assert.rejects(
+    () => resolveConfig({}, {
+      env: { XDG_CONFIG_HOME: '/nonexistent' },
+      remoteUrl: null,
+      readFile: NO_CONFIG_FILE,
+    }),
+    (err) => {
+      assert.equal(err.remedy.includes('is not a Gerrit remote'), false);
+      return true;
+    },
+  );
+});
+
+test('a Gerrit ssh:// remote resolves all four fields, with nothing probed', async () => {
+  const runner = fakeRunner([]);
+  const config = await resolveConfig({}, {
+    env: { XDG_CONFIG_HOME: '/nonexistent' },
+    remoteUrl: 'ssh://ada@gerrit.example.com:29418/acme/apps/widget-console',
+    readFile: NO_CONFIG_FILE,
+    runner,
+  });
+
+  assert.equal(config.host, 'gerrit.example.com');
+  assert.equal(config.port, 29418);
+  assert.equal(config.user, 'ada');
+  assert.equal(config.project, 'acme/apps/widget-console');
+  assert.equal(config.sources.host, 'git-remote');
+  assert.deepEqual(runner.calls, [], 'a Gerrit-shaped URL needs no corroboration');
+});
+
+test('a Gerrit https remote with the /a/ prefix resolves host, project and REST base', async () => {
+  const runner = fakeRunner([]);
+  const config = await resolveConfig({}, {
+    env: { XDG_CONFIG_HOME: '/nonexistent' },
+    remoteUrl: 'https://ada@gerrit.example.com/a/acme/apps/widget-console',
+    readFile: NO_CONFIG_FILE,
+    runner,
+  });
+
+  assert.equal(config.host, 'gerrit.example.com');
+  assert.equal(config.user, 'ada');
+  assert.equal(config.project, 'acme/apps/widget-console');
+  assert.equal(config.restBase, 'https://gerrit.example.com');
+  assert.equal(config.port, DEFAULT_SSH_PORT, 'an https remote says nothing about sshd');
+  assert.deepEqual(runner.calls, []);
+});
+
+test('Gerrit\'s commit-msg hook corroborates an ambiguous remote', async () => {
+  // A Gerrit site whose anonymous https clone URL carries no /a/ prefix: the URL
+  // alone cannot be told from any other forge's, but the repo can.
+  const config = await resolveConfig({}, {
+    env: { XDG_CONFIG_HOME: '/nonexistent', GERRIT_HOST: 'env.example.com' },
+    remoteUrl: 'https://gerrit.example.com/acme/apps/widget-console',
+    readFile: NO_CONFIG_FILE,
+    runner: fakeRunner([
+      { match: (f, a) => f === 'git' && a.includes('--get-all'), result: { code: 1 } },
+      {
+        match: (f, a) => f === 'git' && a.includes('--git-path'),
+        result: { stdout: 'hooks/commit-msg\n' },
+      },
+    ]),
+    readRepoFile: async () => '#!/bin/sh\n# Gerrit hook: adds a Change-Id to the message.\n',
+  });
+
+  assert.equal(config.host, 'gerrit.example.com');
+  assert.equal(config.sources.host, 'git-remote', 'the corroborated remote outranks the env');
+  assert.equal(config.project, 'acme/apps/widget-console');
+});
+
+test('a refs/for refspec corroborates an ambiguous ssh remote', async () => {
+  const config = await resolveConfig({}, {
+    env: { XDG_CONFIG_HOME: '/nonexistent', GERRIT_HOST: 'env.example.com' },
+    remoteUrl: 'ssh://ada@gerrit.example.com/acme/one',
+    readFile: NO_CONFIG_FILE,
+    runner: fakeRunner([
+      {
+        match: (f, a) => f === 'git' && a.includes('--get-all'),
+        result: { stdout: 'HEAD:refs/for/main\n' },
+      },
+    ]),
+  });
+
+  assert.equal(config.host, 'gerrit.example.com');
+  assert.equal(config.user, 'ada');
+  assert.equal(config.port, DEFAULT_SSH_PORT);
+  assert.equal(config.sources.host, 'git-remote');
+});
+
+test('acceptGerritRemote treats a missing git as no evidence rather than an error', async () => {
+  const parsed = parseRemoteUrl('https://github.com/owner/repo.git');
+  const verdict = await acceptGerritRemote(parsed, {
+    cwd: '/some/checkout',
+    runner: async () => { throw new Error('spawn git ENOENT'); },
+  });
+  assert.deepEqual(verdict, { remote: null, shape: 'ambiguous', evidence: null });
+
+  assert.deepEqual(
+    await acceptGerritRemote(null, { runner: async () => { throw new Error('unused'); } }),
+    { remote: null, shape: 'absent', evidence: null },
+  );
 });
 
 test('readGitRemoteUrl returns null outside a repo instead of throwing', async () => {

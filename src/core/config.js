@@ -19,6 +19,12 @@
  * in identifies the server you mean, and a stale exported GERRIT_HOST should not
  * silently redirect queries about it. `--host` remains the escape hatch.
  *
+ * The git-remote step answers only for a remote we recognise as Gerrit's -- see
+ * `acceptGerritRemote` in remote.js. Any other remote contributes nothing at all,
+ * so standing in a repo hosted somewhere else is indistinguishable from standing
+ * in a repo with no remote, and never means an SSH attempt at a forge that does
+ * not speak Gerrit.
+ *
  * There is no built-in hostname. If none of the sources yields one we say so and
  * say how to fix it.
  */
@@ -29,7 +35,12 @@ import path from 'node:path';
 
 import { ConfigError } from './errors.js';
 import { runCommand } from './exec.js';
-import { DEFAULT_SSH_PORT, parseRemoteUrl, readGitRemoteUrl } from './remote.js';
+import {
+  DEFAULT_SSH_PORT,
+  acceptGerritRemote,
+  parseRemoteUrl,
+  readGitRemoteUrl,
+} from './remote.js';
 
 /** @typedef {'override'|'git-remote'|'env'|'config-file'|'derived'} SourceName */
 
@@ -159,7 +170,8 @@ export function normalizeSeverityPatterns(raw) {
  * @param {{host?: string, port?: number|string, user?: string, project?: string,
  *          restBase?: string}} overrides
  * @param {{cwd?: string, env?: NodeJS.ProcessEnv, runner?: import('./exec.js').Runner,
- *          readFile?: (p: string) => Promise<string>, remoteUrl?: string|null}} [deps]
+ *          readFile?: (p: string) => Promise<string>,
+ *          readRepoFile?: (p: string) => Promise<string>, remoteUrl?: string|null}} [deps]
  * @returns {Promise<ResolvedConfig>}
  */
 export async function resolveConfig(overrides = {}, deps = {}) {
@@ -170,7 +182,12 @@ export async function resolveConfig(overrides = {}, deps = {}) {
   const remoteUrl = deps.remoteUrl !== undefined
     ? deps.remoteUrl
     : await readGitRemoteUrl({ cwd, runner });
-  const remote = parseRemoteUrl(remoteUrl);
+  const parsedRemote = parseRemoteUrl(remoteUrl);
+  // A remote that is not recognisably Gerrit's is dropped whole: `remote` is null
+  // and every field below falls through to the environment and the config file.
+  const { remote } = await acceptGerritRemote(parsedRemote, {
+    cwd, runner, readFile: deps.readRepoFile,
+  });
 
   /** @type {Record<string, SourceName>} */
   const sources = {};
@@ -202,6 +219,11 @@ export async function resolveConfig(overrides = {}, deps = {}) {
     throw new ConfigError('cannot determine the Gerrit host', {
       code: 'HOST_UNRESOLVED',
       remedy: [
+        // Say why the repo we are standing in did not answer, when it had a
+        // remote and that remote was the thing we declined to trust.
+        ...(parsedRemote && !remote
+          ? [`This repo's git remote (${String(remoteUrl).trim()}) is not a Gerrit remote, so it was ignored.`, '']
+          : []),
         'Do one of the following:',
         "  * run this inside a repo whose 'origin' remote points at Gerrit",
         '        git remote -v   ->   ssh://<user>@<host>:29418/<project/path>',
