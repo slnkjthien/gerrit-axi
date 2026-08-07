@@ -1,8 +1,8 @@
 /**
  * Subprocess helpers.
  *
- * Rule inherited from the spike: credentials never appear in argv, because argv
- * is world-readable via `ps`. Anything secret is written to the child's stdin.
+ * Standing rule: credentials never appear in argv, because argv is world-readable
+ * via `ps`. Anything secret is written to the child's stdin.
  */
 
 import { spawn } from 'node:child_process';

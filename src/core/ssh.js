@@ -5,8 +5,8 @@
  * the server's own readiness verdict -- in one round trip, and because it needs
  * no HTTP credential. Only inline comments require REST.
  *
- * We always ask for `--current-patch-set --all-approvals --submit-records`, as
- * the spike does; those three flags are what make the readiness oracle possible.
+ * We always ask for `--current-patch-set --all-approvals --submit-records`; those
+ * three flags are what make the readiness oracle possible.
  *
  * Gerrit's SSH daemon parses the remote command itself; there is no shell on the
  * far side. But `host` and `port` are data read off a git remote, so a query is

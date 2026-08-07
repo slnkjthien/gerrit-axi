@@ -31,6 +31,11 @@ fails if any of them is broken, which is the intended way to find out.
   greps core to enforce it.
 - v0.1 is read-only. No mutating REST verb and no mutating `gerrit` SSH
   subcommand may appear in the codebase.
+- Prose is written for a stranger running their own server: never assert a fact
+  about *the reader's* Gerrit that the tool has not checked (`git_basic_auth_policy`
+  is the trap), and never name a specific organisation, project-path prefix, or
+  server version in code, tests, comments or docs. `test/layering.test.js` catches
+  the hostname and project-prefix cases; the rest is on review.
 - `src/axi/` and any machine-readable output mode are deliberately absent, so the
   future agent-facing binary imports `src/core/index.js` instead of parsing the
   CLI. Do not create either without a task that asks for it.

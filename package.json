@@ -1,7 +1,6 @@
 {
   "name": "gerrit-axi",
   "version": "0.1.0",
-  "private": true,
   "description": "Read-only Gerrit CLI: attention set, change readiness, and inline review comments.",
   "type": "module",
   "engines": {
@@ -20,7 +19,9 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
-  "license": "UNLICENSED"
+  "license": "Apache-2.0"
 }

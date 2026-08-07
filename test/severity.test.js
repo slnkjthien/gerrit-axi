@@ -12,7 +12,7 @@ const body = fixture('comments-body.txt');
 const comments = normalizeComments(parseGerritJson(body));
 
 /**
- * The convention the bash spike hardcoded. It belongs to one company's Jenkins
+ * A concrete instance of the convention: it belongs to one organisation's CI
  * job, so here it is test data, not product behaviour.
  */
 const SITE_PATTERNS = [

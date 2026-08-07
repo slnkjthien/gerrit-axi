@@ -93,16 +93,16 @@ test('there is no hardcoded hostname anywhere in the codebase', () => {
   }
 });
 
-test('the seed\'s company-specific defaults did not come along', () => {
+test('no hardcoded project-path prefix', () => {
+  // Path shortening is derived from the result set. A constant listing one
+  // server's top-level project directories -- `/^(one|two)\//` and friends --
+  // is wrong on every other server, so it must not appear.
+  const prefixLiteral = /\^?\(\s*[a-z0-9][a-z0-9._-]*\s*(?:\|\s*[a-z0-9][a-z0-9._-]*\s*)+\)\s*\\?\//;
   const files = [...jsFilesUnder(SRC_DIR), path.join(REPO_ROOT, 'bin', 'gerrit.js')];
   for (const file of files) {
-    const text = readFileSync(file, 'utf8');
-    assert.equal(/spectralink/i.test(text), false,
-      `${path.relative(REPO_ROOT, file)} must not name a specific company`);
-    // The spike stripped this path prefix as a constant; shortening is derived
-    // from the result set now.
-    assert.equal(/\bapps\|tools\b/.test(text), false,
-      `${path.relative(REPO_ROOT, file)} must not hardcode a project path prefix`);
+    const code = stripComments(readFileSync(file, 'utf8'));
+    assert.equal(prefixLiteral.test(code), false,
+      `${path.relative(REPO_ROOT, file)} must not hardcode a project-path prefix`);
   }
 });
 

@@ -3,10 +3,10 @@
  * and this file is where most of it is: column widths, colour, truncation, and
  * the cosmetic project-path shortening.
  *
- * The shortening is derived from the result set rather than configured. The spike
- * stripped a hardcoded company path prefix; here we find whatever prefix the rows
- * actually share and say what we removed. Nothing to configure, nothing to go
- * stale.
+ * The shortening is derived from the result set rather than configured. Stripping
+ * a hardcoded prefix would be wrong on every server but one; here we find whatever
+ * prefix the rows actually share and say what we removed. Nothing to configure,
+ * nothing to go stale.
  */
 
 /**

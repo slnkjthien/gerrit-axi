@@ -50,7 +50,7 @@ test('gerrit status renders the attention set with a BLOCKED-ON column', async (
   assert.match(lines[0], /^CHANGE\s+PROJECT\s+BRANCH\s+UPDATED\s+SUBMIT\s+BLOCKED-ON\s+SUBJECT$/);
   assert.equal(lines.length, 4, 'a header plus three changes');
 
-  // Newest first, as the spike sorted them.
+  // Newest first.
   assert.deepEqual(lines.slice(1).map((l) => l.trimStart().split(/\s+/)[0]), ['184431', '184458', '184402']);
 
   // The blocking label is the server's, printed verbatim.

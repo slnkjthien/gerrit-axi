@@ -277,7 +277,7 @@ export function buildQuery(spec) {
 
 /**
  * Query changes and return typed models. Ordering is left as the server gave it;
- * `sortByLastUpdatedDesc` is available for callers that want the spike's order.
+ * `sortByLastUpdatedDesc` is available for callers that want newest-first order.
  *
  * @param {import('./session.js').Session} session
  * @param {QuerySpec|string} spec

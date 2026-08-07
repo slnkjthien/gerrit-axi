@@ -1,8 +1,8 @@
 /**
  * Severity classification -- TIER 3.
  *
- * The spike sorted review comments into `[issue]` (blocking-ish) and
- * `[suggestion]` (advisory). That prefix is one company's Jenkins job convention.
+ * Some CI systems sort review comments into `[issue]` (blocking-ish) and
+ * `[suggestion]` (advisory). That prefix is one organisation's CI job convention.
  * It is not part of Gerrit, and it is not part of any bot framework, so it cannot
  * be derived from anything: it has to be configured.
  *

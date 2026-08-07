@@ -2,8 +2,8 @@
  * `gerrit auth login | status | logout`
  *
  * The prompt copy here is load-bearing, not decoration: it is where the tool
- * refuses to help you store an LDAP/domain password and says why. The observed
- * server's `git_basic_auth_policy` is HTTP_LDAP, so a domain password *would*
+ * refuses to help you store an LDAP/domain password and says why. On a server
+ * whose `git_basic_auth_policy` is HTTP_LDAP a domain password *would*
  * authenticate -- which is exactly why the refusal has to be explicit.
  */
 
@@ -53,7 +53,7 @@ async function authLogin({ session, args, out, err, colorize, stdin = process.st
     err(`    ${settingsUrl}`);
     err('');
     err(colorize('yellow', 'Do NOT paste your LDAP/domain password.'));
-    err('This server accepts one (git_basic_auth_policy = HTTP_LDAP), and that is precisely');
+    err('Some servers accept one (git_basic_auth_policy = HTTP_LDAP), and that is precisely');
     err('why we refuse it: a Gerrit token is revocable and scoped to Gerrit, a domain');
     err('password is neither. Only a token will be stored.');
     err('');
