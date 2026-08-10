@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Rendering. Everything that knows what output *looks like* lives in src/cli/,
  * and this file is where most of it is: column widths, colour, truncation, and

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Guards on the two architectural rules. These are the tests that fail if a later
  * change quietly dissolves the layering, which is the failure mode worth catching

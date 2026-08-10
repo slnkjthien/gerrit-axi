@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The three facts a reviewer asks for together: which patch set the server has,
  * who voted and when, and what the cover messages say -- including a build result

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * End-to-end CLI tests. `main()` is driven with a fake subprocess runner and a
  * fake HTTP client, so these exercise argument parsing, config resolution,

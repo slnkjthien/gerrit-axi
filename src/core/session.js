@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * A Session bundles resolved configuration with the injectable edges of the
  * process -- the subprocess runner and the HTTP client.

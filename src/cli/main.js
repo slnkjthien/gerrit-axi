@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * CLI entry point: dispatch, and the one place errors turn into output.
  *
