@@ -31,11 +31,15 @@ const LABEL_STATUS_SEVERITY = ['OK', 'MAY', 'NEED', 'REJECT', 'IMPOSSIBLE'];
 const BLOCKING_LABEL_STATUSES = new Set(['NEED', 'REJECT', 'IMPOSSIBLE']);
 
 /**
+ * @typedef {{name: string|null, username: string|null, email: string|null}} Account
+ */
+
+/**
  * @typedef {Object} LabelVerdict
  * @property {string} name     whatever the server called it
  * @property {string} status   OK | MAY | NEED | REJECT | IMPOSSIBLE | ...
  * @property {boolean} blocking
- * @property {{name: string|null, username: string|null, email: string|null}|null} by
+ * @property {Account|null} by
  *   the account that satisfied the label, when the server names one
  */
 
@@ -52,11 +56,54 @@ const BLOCKING_LABEL_STATUSES = new Set(['NEED', 'REJECT', 'IMPOSSIBLE']);
  */
 
 /**
+ * @typedef {Object} Vote
+ * @property {number} value
+ * @property {Account|null} by        who cast it
+ * @property {Date|null} grantedOn    when they cast it
+ */
+
+/**
  * @typedef {Object} LabelVotes
  * @property {string} name
  * @property {number} max
  * @property {number} min
- * @property {Array<{value: number, by: {name: string|null, username: string|null, email: string|null}|null}>} votes
+ * @property {Vote[]} votes
+ */
+
+/**
+ * @typedef {Object} PatchSet
+ * @property {number|null} number
+ * @property {string|null} revision    the commit SHA the server has
+ * @property {string|null} ref         refs/changes/<nn>/<change>/<patchset>
+ * @property {Account|null} uploader
+ * @property {Date|null} createdOn
+ */
+
+/**
+ * A change this one sits on top of, or that sits on top of it.
+ *
+ * @typedef {Object} Dependency
+ * @property {number|null} number
+ * @property {string|null} id
+ * @property {string|null} revision
+ * @property {string|null} ref
+ * @property {boolean|null} isCurrentPatchSet  is `revision` still that change's
+ *   current patch set? null when the server did not say. False on a `dependsOn`
+ *   means this change is stacked on a parent revision that has been superseded.
+ */
+
+/**
+ * A cover message: what Gerrit calls a change message, and what the web UI shows
+ * as the change's conversation -- vote summaries, CI results and their URLs,
+ * "Uploaded patch set N". Distinct from the inline comments in comments.js,
+ * which live on a file and a line and come over REST.
+ *
+ * @typedef {Object} ChangeMessage
+ * @property {Date|null} timestamp
+ * @property {Account|null} author
+ * @property {string} message                the body, verbatim
+ * @property {number|null} patchSet          best-effort, see deriveMessages
+ * @property {string[]} urls                 every URL in the body, in order
  */
 
 /**
@@ -72,10 +119,13 @@ const BLOCKING_LABEL_STATUSES = new Set(['NEED', 'REJECT', 'IMPOSSIBLE']);
  * @property {boolean} wip
  * @property {Date|null} createdOn
  * @property {Date|null} lastUpdated
- * @property {{name: string|null, username: string|null, email: string|null}|null} owner
- * @property {{number: number|null, revision: string|null}|null} currentPatchSet
+ * @property {Account|null} owner
+ * @property {PatchSet|null} currentPatchSet
  * @property {Readiness} readiness
  * @property {LabelVotes[]} votes          per-label votes on the current patch set
+ * @property {Dependency[]} dependsOn      empty unless the query asked for them
+ * @property {Dependency[]} neededBy       empty unless the query asked for them
+ * @property {ChangeMessage[]} messages    empty unless the query asked for them
  * @property {any} raw                     the untouched server row
  */
 
@@ -175,14 +225,89 @@ export function deriveVotes(row) {
     }
     entry.max = Math.max(entry.max, value);
     entry.min = Math.min(entry.min, value);
-    entry.votes.push({ value, by: normalizeAccount(approval.by) });
+    entry.votes.push({
+      value,
+      by: normalizeAccount(approval.by),
+      grantedOn: epochToDate(approval.grantedOn),
+    });
+  }
+  for (const entry of byLabel.values()) {
+    // Oldest first, so the last vote on a label is the last row a caller sees.
+    entry.votes.sort((a, b) => (a.grantedOn?.getTime() ?? 0) - (b.grantedOn?.getTime() ?? 0));
   }
   return [...byLabel.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** URLs a cover message carries -- where a CI result says its log can be read. */
+const URL_IN_TEXT = /\bhttps?:\/\/[^\s<>"'`\]]+/g;
+
+/**
+ * Gerrit writes its own cover messages and names the patch set in their first
+ * line ("Patch Set 7: ...", "Uploaded patch set 8."). That is a convention of the
+ * server's message text rather than a field, so this is best-effort by
+ * construction: a message that does not say gets null, and nothing downstream may
+ * assume otherwise.
+ */
+const PATCH_SET_IN_MESSAGE = /^\s*(?:uploaded\s+)?patch\s+set\s+(\d+)\b/i;
+
+/**
+ * The change's cover messages, oldest first.
+ *
+ * Present only when the query asked for them; see `DETAIL_QUERY_FLAGS` in ssh.js.
+ *
+ * @param {any} row
+ * @returns {ChangeMessage[]}
+ */
+export function deriveMessages(row) {
+  const list = Array.isArray(row?.comments) ? row.comments : [];
+  /** @type {ChangeMessage[]} */
+  const messages = [];
+  for (const entry of list) {
+    const message = typeof entry?.message === 'string' ? entry.message : '';
+    const found = PATCH_SET_IN_MESSAGE.exec(message.split('\n', 1)[0] ?? '');
+    messages.push({
+      timestamp: epochToDate(entry?.timestamp),
+      author: normalizeAccount(entry?.reviewer),
+      message,
+      patchSet: found ? Number(found[1]) : null,
+      // Trailing punctuation belongs to the sentence, not to the URL.
+      urls: (message.match(URL_IN_TEXT) ?? []).map((url) => url.replace(/[.,;:)]+$/, '')),
+    });
+  }
+  return messages.sort(
+    (a, b) => (a.timestamp?.getTime() ?? 0) - (b.timestamp?.getTime() ?? 0),
+  );
+}
+
+/**
+ * @param {any} entry
+ * @returns {Dependency}
+ */
+function normalizeDependency(entry) {
+  const number = Number(entry?.number);
+  return {
+    number: Number.isFinite(number) ? number : null,
+    id: entry?.id ?? null,
+    revision: entry?.revision ?? null,
+    ref: entry?.ref ?? null,
+    // Tri-state on purpose: "the server did not say" is not "not current".
+    isCurrentPatchSet: typeof entry?.isCurrentPatchSet === 'boolean'
+      ? entry.isCurrentPatchSet
+      : null,
+  };
+}
+
+/**
+ * @param {any} list
+ * @returns {Dependency[]}
+ */
+function normalizeDependencies(list) {
+  return (Array.isArray(list) ? list : []).map(normalizeDependency);
+}
+
 /**
  * @param {any} account
- * @returns {{name: string|null, username: string|null, email: string|null}|null}
+ * @returns {Account|null}
  */
 function normalizeAccount(account) {
   if (!account || typeof account !== 'object') return null;
@@ -219,10 +344,16 @@ export function normalizeChange(row) {
           ? null
           : Number(row.currentPatchSet.number),
         revision: row.currentPatchSet.revision ?? null,
+        ref: row.currentPatchSet.ref ?? null,
+        uploader: normalizeAccount(row.currentPatchSet.uploader),
+        createdOn: epochToDate(row.currentPatchSet.createdOn),
       }
       : null,
     readiness: deriveReadiness(row),
     votes: deriveVotes(row),
+    dependsOn: normalizeDependencies(row?.dependsOn),
+    neededBy: normalizeDependencies(row?.neededBy),
+    messages: deriveMessages(row),
     raw: row,
   };
 }
@@ -279,20 +410,41 @@ export function buildQuery(spec) {
  * Query changes and return typed models. Ordering is left as the server gave it;
  * `sortByLastUpdatedDesc` is available for callers that want newest-first order.
  *
+ * `include` names optional detail -- see `DETAIL_QUERY_FLAGS` in ssh.js. It is
+ * opt-in because each entry costs the server work per row: a list of a hundred
+ * changes has no use for a hundred message timelines.
+ *
  * @param {import('./session.js').Session} session
  * @param {QuerySpec|string} spec
- * @param {{limit?: number}} [opts]
+ * @param {{limit?: number, include?: readonly string[]}} [opts]
  * @returns {Promise<Change[]>}
  */
-export async function queryChanges(session, spec, { limit = 100 } = {}) {
+export async function queryChanges(session, spec, { limit = 100, include = [] } = {}) {
   const query = typeof spec === 'string' ? spec : buildQuery(spec);
   const { config, runner } = session;
   const { rows } = await sshQuery(
     { host: config.host, port: config.port, user: config.user },
     query,
-    { limit, runner },
+    { limit, runner, include },
   );
   return rows.filter((row) => row && row.project !== undefined).map(normalizeChange);
+}
+
+/**
+ * Everything the question "where does this change stand" needs, in one round
+ * trip: the current patch set and its revision, who voted and when, the
+ * dependencies with their `isCurrentPatchSet` flag, and the cover messages.
+ *
+ * @param {import('./session.js').Session} session
+ * @param {Array<number|string>} numbers
+ * @returns {Promise<Change[]>} in the order the server returned them
+ */
+export function queryChangeDetails(session, numbers) {
+  const list = [...numbers];
+  return queryChanges(session, { kind: 'changes', numbers: list }, {
+    limit: Math.max(1, list.length),
+    include: ['comments', 'dependencies'],
+  });
 }
 
 /**

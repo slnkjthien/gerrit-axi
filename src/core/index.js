@@ -20,6 +20,11 @@
  *     const changes = await queryChanges(session, { kind: 'attention' });
  *     const blocked = changes.filter((c) => c.readiness.blocking.length > 0);
  *     const comments = await listComments(session, 184458, { botsOnly: true });
+ *
+ * ...and one change's whole review state -- the patch set the server has, who
+ * voted and when, the stack, and the cover messages with the URLs they carry:
+ *
+ *     const [change] = await queryChangeDetails(session, [184458]);
  */
 
 export { Session, createSession } from './session.js';
@@ -52,9 +57,11 @@ export {
 
 export {
   buildQuery,
+  deriveMessages,
   deriveReadiness,
   deriveVotes,
   normalizeChange,
+  queryChangeDetails,
   queryChanges,
   sortByLastUpdatedDesc,
 } from './changes.js';
@@ -87,7 +94,13 @@ export {
   verifyToken,
 } from './rest.js';
 
-export { assertSafeQuery, buildSshArgs, parseQueryOutput, sshQuery } from './ssh.js';
+export {
+  DETAIL_QUERY_FLAGS,
+  assertSafeQuery,
+  buildSshArgs,
+  parseQueryOutput,
+  sshQuery,
+} from './ssh.js';
 
 export { AuthError, ConfigError, GerritError, TransportError } from './errors.js';
 

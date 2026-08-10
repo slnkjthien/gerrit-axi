@@ -12,6 +12,7 @@ import { AuthError, ConfigError, GerritError, TransportError } from '../core/err
 import { createSession } from '../core/session.js';
 import { AUTH_USAGE, runAuth } from './commands/auth.js';
 import { COMMENTS_FLAGS, COMMENTS_USAGE, runComments } from './commands/comments.js';
+import { SHOW_FLAGS, SHOW_USAGE, runShow } from './commands/show.js';
 import { STATUS_FLAGS, STATUS_USAGE, runStatus } from './commands/status.js';
 import { UsageError, parseArgs } from './args.js';
 import { makeColorizer, terminalWidth } from './render.js';
@@ -29,14 +30,22 @@ const USAGE = `gerrit - read-only Gerrit status and review comments
 
 usage: gerrit <command> [options]
 
-commands:
+commands, and the options each one takes:
   status                      changes awaiting your attention ("your turn")
   status mine                 your open changes
   status <change>...          specific change numbers
   status --query '<query>'    an arbitrary Gerrit query
+      --labels                one column per label the server reports
+      --patch-set             add the current patch set number and revision
+      --limit <n>             maximum changes to fetch (default 100)
+  show <change>...            one change in full: current patch set and revision,
+                              dependencies, every vote with who cast it and when,
+                              and the cover messages (build results and their URLs)
+      --messages <n|all>      how many cover messages to show (default 10)
   comments <change>           inline review comments
-  comments <change> --bots    only machine-generated comments
+      --bots | --humans       only / never machine-generated
   auth login|status|logout    manage the stored Gerrit auth token
+      --stdin                 read the token from stdin ('auth login')
 
 global options:
   --host <h>      override the resolved Gerrit host
@@ -88,11 +97,13 @@ export async function main(argv, io = {}) {
 
   const flagSpec = command === 'status'
     ? STATUS_FLAGS
-    : command === 'comments'
-      ? COMMENTS_FLAGS
-      : command === 'auth'
-        ? { withValue: new Set(), boolean: new Set(['--stdin']) }
-        : {};
+    : command === 'show'
+      ? SHOW_FLAGS
+      : command === 'comments'
+        ? COMMENTS_FLAGS
+        : command === 'auth'
+          ? { withValue: new Set(), boolean: new Set(['--stdin']) }
+          : {};
 
   let colorize = makeColorizer({ env, isTTY: stdout.isTTY });
 
@@ -123,6 +134,8 @@ export async function main(argv, io = {}) {
     switch (command) {
       case 'status':
         return await runStatus(ctx);
+      case 'show':
+        return await runShow(ctx);
       case 'comments':
         return await runComments(ctx);
       case 'auth':
@@ -145,6 +158,7 @@ export async function main(argv, io = {}) {
 function usageFor(command) {
   switch (command) {
     case 'status': return STATUS_USAGE;
+    case 'show': return SHOW_USAGE;
     case 'comments': return COMMENTS_USAGE;
     case 'auth': return AUTH_USAGE;
     default: return USAGE;

@@ -6,7 +6,9 @@
  * no HTTP credential. Only inline comments require REST.
  *
  * We always ask for `--current-patch-set --all-approvals --submit-records`; those
- * three flags are what make the readiness oracle possible.
+ * three flags are what make the readiness oracle possible. Anything beyond them
+ * is opt-in per call, because it costs the server work on every row: see
+ * `DETAIL_QUERY_FLAGS`.
  *
  * Gerrit's SSH daemon parses the remote command itself; there is no shell on the
  * far side. But `host` and `port` are data read off a git remote, so a query is
@@ -48,16 +50,64 @@ export function assertSafeQuery(query) {
 }
 
 /**
+ * Detail a caller may ask for on top of the three flags every query sends.
+ *
+ * `comments` adds the change's cover messages -- the "Patch Set 7: ...", "Build
+ * Successful <url>", "Uploaded patch set 8" timeline. (Gerrit would also attach
+ * per-patch-set inline comments to this flag, but only alongside `--patch-sets`,
+ * which we never ask for: REST serves inline comments, and asking twice would be
+ * paying for the same data on every row.)
+ *
+ * `dependencies` adds `dependsOn` / `neededBy`, each carrying the revision it
+ * refers to and whether that revision is still that change's current patch set.
+ *
+ * This is an allowlist, not a passthrough: a caller names a key here, never a
+ * flag string, so nothing a caller supplies can become an element of argv.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+export const DETAIL_QUERY_FLAGS = Object.freeze({
+  comments: '--comments',
+  dependencies: '--dependencies',
+});
+
+/**
+ * @param {readonly string[]} include  keys of DETAIL_QUERY_FLAGS
+ * @returns {string[]} the flags, deduplicated, in the order they were named
+ */
+function detailFlags(include) {
+  /** @type {string[]} */
+  const flags = [];
+  for (const name of include) {
+    const flag = Object.prototype.hasOwnProperty.call(DETAIL_QUERY_FLAGS, name)
+      ? DETAIL_QUERY_FLAGS[name]
+      : undefined;
+    if (!flag) {
+      throw new TransportError(`unknown query detail: ${name}`, {
+        code: 'UNSAFE_QUERY',
+        remedy: `known details: ${Object.keys(DETAIL_QUERY_FLAGS).join(', ')}`,
+      });
+    }
+    if (!flags.includes(flag)) flags.push(flag);
+  }
+  return flags;
+}
+
+/**
  * Build the argv for `ssh`. Exported so tests can assert on it without running
  * anything. No credential is ever an element of this array -- SSH authenticates
  * with the user's own agent/keys.
  *
  * @param {{host: string, port: number, user: string}} conn
  * @param {string} query
- * @param {{limit?: number, connectTimeoutSeconds?: number}} [opts]
+ * @param {{limit?: number, connectTimeoutSeconds?: number, include?: readonly string[]}} [opts]
  * @returns {string[]}
  */
-export function buildSshArgs(conn, query, { limit = 100, connectTimeoutSeconds = 10 } = {}) {
+export function buildSshArgs(
+  conn,
+  query,
+  { limit = 100, connectTimeoutSeconds = 10, include = [] } = {},
+) {
   assertSafeQuery(query);
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new TransportError(`invalid limit: ${limit}`, { code: 'UNSAFE_QUERY' });
@@ -72,6 +122,7 @@ export function buildSshArgs(conn, query, { limit = 100, connectTimeoutSeconds =
     '--current-patch-set',
     '--all-approvals',
     '--submit-records',
+    ...detailFlags(include),
     query,
     `limit:${limit}`,
   ];
@@ -122,11 +173,16 @@ export function parseQueryOutput(stdout) {
  *
  * @param {{host: string, port: number, user: string}} conn
  * @param {string} query
- * @param {{limit?: number, runner?: import('./exec.js').Runner}} [opts]
+ * @param {{limit?: number, runner?: import('./exec.js').Runner,
+ *          include?: readonly string[]}} [opts]
  * @returns {Promise<{rows: any[], stats: any|null}>}
  */
-export async function sshQuery(conn, query, { limit = 100, runner = runCommand } = {}) {
-  const args = buildSshArgs(conn, query, { limit });
+export async function sshQuery(
+  conn,
+  query,
+  { limit = 100, runner = runCommand, include = [] } = {},
+) {
+  const args = buildSshArgs(conn, query, { limit, include });
   let result;
   try {
     result = await runner('ssh', args, { timeoutMs: 60_000 });

@@ -10,6 +10,8 @@
 import { queryChanges, sortByLastUpdatedDesc } from '../../core/changes.js';
 import { UsageError } from '../args.js';
 import {
+  abbreviateRevision,
+  colorSubmitStatus,
   commonPathPrefix,
   formatDate,
   formatVote,
@@ -27,12 +29,16 @@ export const STATUS_USAGE = `usage: gerrit status [mine | <change>... | --query 
   --query <q>       an arbitrary Gerrit query
 
   --labels          add one column per label the server reports
-  --limit <n>       maximum changes to fetch (default 100)`;
+  --patch-set       add the current patch set number and revision
+  --limit <n>       maximum changes to fetch (default 100)
+
+A table has room for a vote but not for who cast it, when, or what CI said:
+'gerrit show <change>' is the detail view for one change.`;
 
 /** Flags this command understands, for the argument parser. */
 export const STATUS_FLAGS = {
   withValue: new Set(['--query', '--limit']),
-  boolean: new Set(['--labels']),
+  boolean: new Set(['--labels', '--patch-set']),
 };
 
 /**
@@ -91,8 +97,19 @@ export async function runStatus({ session, args, out, err, colorize, width = ter
     { header: 'PROJECT', value: (c) => c.project.slice(prefix.length), max: 28 },
     { header: 'BRANCH', value: (c) => c.branch, max: 20 },
     { header: 'UPDATED', value: (c) => formatDate(c.lastUpdated) },
-    { header: 'SUBMIT', value: (c) => colorSubmit(c.readiness.status, colorize) },
+    { header: 'SUBMIT', value: (c) => colorSubmitStatus(c.readiness.status, colorize) },
   ];
+
+  if (args.flags['--patch-set'] === true) {
+    // Enough of the revision to recognise the commit a push just created; the
+    // whole of it is one `gerrit show` away.
+    columns.push({
+      header: 'PATCH-SET',
+      value: (c) => (c.currentPatchSet
+        ? `${c.currentPatchSet.number ?? '?'}@${abbreviateRevision(c.currentPatchSet.revision)}`
+        : '-'),
+    });
+  }
 
   if (args.flags['--labels'] === true) {
     // Enumerate whatever labels this result set actually mentions.
@@ -174,24 +191,6 @@ function labelCell(change, label, colorize) {
   if (verdict?.blocking) return colorize('red', `!${text}`);
   if (verdict?.status === 'OK') return colorize('green', text);
   return text;
-}
-
-/**
- * @param {string} status
- * @param {(code: string, text: string) => string} colorize
- * @returns {string}
- */
-function colorSubmit(status, colorize) {
-  switch (status) {
-    case 'OK':
-      return colorize('green', status);
-    case 'RULE_ERROR':
-      return colorize('red', status);
-    case 'UNKNOWN':
-      return colorize('dim', status);
-    default:
-      return colorize('yellow', status);
-  }
 }
 
 /**

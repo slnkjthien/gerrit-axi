@@ -29,6 +29,11 @@ fails if any of them is broken, which is the intended way to find out.
 - No label name is ever hardcoded. Readiness comes from the server's submit
   records via `deriveReadiness` in `src/core/changes.js`; `test/readiness.test.js`
   greps core to enforce it.
+- Every `gerrit query` sends `--current-patch-set --all-approvals
+  --submit-records`. Anything else is opt-in per call and named through the
+  `DETAIL_QUERY_FLAGS` allowlist in `src/core/ssh.js` — a caller passes a key,
+  never a flag string, so nothing caller-supplied reaches argv. Add a detail flag
+  there rather than at a call site.
 - v0.1 is read-only. No mutating REST verb and no mutating `gerrit` SSH
   subcommand may appear in the codebase.
 - Prose is written for a stranger running their own server: never assert a fact
@@ -38,7 +43,12 @@ fails if any of them is broken, which is the intended way to find out.
   the hostname and project-prefix cases; the rest is on review.
 - `src/axi/` and any machine-readable output mode are deliberately absent, so the
   future agent-facing binary imports `src/core/index.js` instead of parsing the
-  CLI. Do not create either without a task that asks for it.
+  CLI. Do not create either without a task that asks for it. A request for
+  machine-readable output is a request for that binary, not for a `--json` flag.
+- Every subcommand's options are listed in the top-level `gerrit --help` as well
+  as in its own usage string. Options that appear only in the subcommand's help
+  have been missed in practice; `test/review-state.test.js` checks the top-level
+  help mentions them.
 
 ## Credential handling
 

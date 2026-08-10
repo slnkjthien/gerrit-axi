@@ -1,8 +1,9 @@
 # gerrit-axi
 
-A read-only Gerrit CLI. It answers the two questions a reviewer actually asks —
-*whose turn is it, and what is blocking this change* — and prints the inline
-review comments, including the machine-generated ones.
+A read-only Gerrit CLI. It answers the questions a reviewer actually asks —
+*whose turn is it*, *what is blocking this change*, and *where does this one
+change stand* — and prints the review comments, inline and cover, including the
+machine-generated ones.
 
 **v0.1 is read-only.** It never votes, replies, sets reviewers or topics, submits,
 abandons, or pushes. Every operation is a query. The test suite enforces this: a
@@ -44,6 +45,12 @@ gerrit status                      your attention set — the changes where it i
 gerrit status mine                 your open changes
 gerrit status <change>...          specific change numbers
 gerrit status --query '<query>'    an arbitrary Gerrit query
+    --labels                       one column per label the server reports
+    --patch-set                    add the current patch set number and revision
+    --limit <n>                    maximum changes to fetch (default 100)
+
+gerrit show <change>...            one change's review state, in full
+    --messages <n|all>             how many cover messages to show (default 10)
 
 gerrit comments <change>           inline review comments
 gerrit comments <change> --bots    only machine-generated comments
@@ -54,12 +61,71 @@ gerrit auth status                 report whether a stored credential still work
 gerrit auth logout                 remove the stored credential
 ```
 
-`gerrit status` takes `--labels` to add one column per label the server reports,
-and `--limit <n>` (default 100). Global options: `--host`, `--user`, `--port`,
-`--rest-base`, `--no-color`, `-h/--help`, `-V/--version`.
+Every command's options are listed in `gerrit --help` as well as in
+`gerrit <command> --help`, so nothing is discoverable only by knowing it exists.
+Global options: `--host`, `--user`, `--port`, `--rest-base`, `--no-color`,
+`-h/--help`, `-V/--version`.
 
 Exit codes: `0` success, `1` other error, `2` usage, `3` configuration, `4`
 authentication, `5` transport.
+
+### Where does this change stand
+
+`gerrit status` is the list view; `gerrit show` is the detail view for one
+change. It exists as one command rather than three because the three facts it
+prints are asked for together — *is my push on the server, who has voted and how
+long ago, and what did CI say and where do I read it*:
+
+```console
+$ gerrit show 184458
+184458  Stop the widget from re-entering the queue twice
+  project     acme/apps/widget-console  (main)
+  owner       ada
+  status      NEW  ·  submit NOT_READY
+  blocked on  Zebra-Check
+  updated     2026-08-10  (1h ago)
+  patch set   3  aaaa111122223333444455556666777788889999
+  ref         refs/changes/58/184458/3
+  uploaded    ada  2026-08-10 09:12  (3h ago)
+  depends on  184400  dddd111122  superseded -- that change has a newer patch set
+  url         https://gerrit.example.com/c/acme/apps/widget-console/+/184458
+
+  votes
+    LABEL            VOTE  WHO       WHEN                        SUBMIT
+    Release-Gate       +1  buildbot  2026-08-10 09:20  (2h ago)  OK
+    Widget-Approval    +1  grace     2026-08-10 10:04  (1h ago)  OK
+    Zebra-Check         ·  -         -                           NEED
+
+  messages (the last 2 of 9, oldest first; --messages all for every one)
+    2026-08-10 09:20  (2h ago)  [ps3]  <buildbot>
+        Patch Set 3: Release-Gate+1
+
+        Build Successful
+
+        https://ci.example.com/job/widget-console/412/ : SUCCESS
+
+    2026-08-10 10:04  (1h ago)  [ps3]  <grace>
+        Patch Set 3: Widget-Approval+1
+
+        Reads fine to me now.
+```
+
+Three things worth knowing about that output:
+
+- **The revision is printed whole, and the ref beside it.** That line is there to
+  be compared against a local `git rev-parse HEAD` after a push. Dependency
+  revisions are abbreviated, because those are for recognising rather than
+  comparing.
+- **`depends on` says whether the revision it names is still that change's
+  current patch set.** A stack built on a superseded parent revision is the thing
+  you want to find out about before re-reviewing it, not after.
+- **Cover messages are printed exactly as the server wrote them**, URLs and all.
+  A cover message is Gerrit's change-level conversation — vote summaries, CI
+  results, "Uploaded patch set N" — and is a different thing from the inline
+  comments `gerrit comments` prints, which belong to a file and a line and come
+  over a different transport. `[psN]` is read out of the message's own first
+  line, which is a convention of Gerrit's message text rather than a field, so a
+  message that does not say gets no marker.
 
 ## Authentication
 
@@ -288,12 +354,19 @@ Two rules decide whether this design survives, and both are enforced by tests in
    objects, not as something to be screen-scraped:
 
    ```js
-   import { createSession, queryChanges, listComments } from 'gerrit-axi/core';
+   import {
+     createSession, queryChanges, queryChangeDetails, listComments,
+   } from 'gerrit-axi/core';
 
    const session = await createSession();                    // tier-2 resolution
    const changes = await queryChanges(session, { kind: 'attention' });
    const blocked = changes.filter((c) => c.readiness.blocking.length > 0);
    const bots = await listComments(session, 184458, { botsOnly: true });
+
+   const [change] = await queryChangeDetails(session, [184458]);
+   change.currentPatchSet.revision;                          // what the server has
+   change.votes[0].votes[0].by;                              // who, and .grantedOn when
+   change.messages.flatMap((m) => m.urls);                   // where CI posted its logs
    ```
 
 An agent-facing binary is anticipated under `src/axi/`. It does not exist yet, and
@@ -315,6 +388,12 @@ Two channels, both necessary:
   daemon parses the remote command itself, but host and port are data read off a
   git remote, so queries are screened for shell metacharacters before being sent
   in case they arrive somewhere with a real shell.
+
+  `gerrit show` adds `--comments` (the cover messages) and `--dependencies` (the
+  stack, with its `isCurrentPatchSet` flag). Both are opt-in per call, and named
+  through an allowlist rather than passed through, so that no caller-supplied
+  string can become an element of the argv — and so a hundred-row list view never
+  pays for a hundred message timelines.
 - **REST** — `https://<host>/a/...` with Basic auth, for inline comments, which
   SSH cannot reach. Gerrit prefixes every REST JSON body with the XSSI guard line
   `)]}'`, which is stripped before parsing.
@@ -343,6 +422,10 @@ injectable, the real code paths run against them. Covered in particular:
   label names, and a test greps `src/core/` to prove none is hardcoded
 - `autogenerated:` bot-comment filtering, including that the same account's
   untagged comment is *not* treated as a bot's
+- the review-state view: cover messages ordered and parsed from a recorded
+  `--comments --dependencies` response, votes carrying who cast them and when, a
+  blocking verdict printed against the vote the server credited it to, and the
+  detail allowlist refusing a key it does not know
 - the XSSI `)]}'` strip, and 401/403/404 staying distinct
 - severity classification with an empty config (a strict no-op) and with patterns
 - the credential store: file modes, per-host isolation, loud degradation, and a

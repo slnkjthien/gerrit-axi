@@ -166,6 +166,80 @@ export function formatDate(date) {
 }
 
 /**
+ * A date and the time of day, UTC like `formatDate`, for the places where "which
+ * day" is not precise enough -- two votes on the same afternoon, say.
+ *
+ * @param {Date|null} date
+ * @returns {string}
+ */
+export function formatDateTime(date) {
+  if (!date) return '-';
+  return date.toISOString().slice(0, 16).replace('T', ' ');
+}
+
+/**
+ * How long ago, coarsely. "Did Sean review this, and how long ago" is answered by
+ * an order of magnitude, not by a duration to the second.
+ *
+ * `now` is a parameter so this is testable against a fixed instant rather than
+ * against the clock.
+ *
+ * @param {Date|null} date
+ * @param {Date} [now]
+ * @returns {string}
+ */
+export function formatAge(date, now = new Date()) {
+  if (!date) return '-';
+  const seconds = (now.getTime() - date.getTime()) / 1000;
+  if (!Number.isFinite(seconds)) return '-';
+  if (seconds < 0) return 'in the future';
+  const minutes = seconds / 60;
+  const hours = minutes / 60;
+  const days = hours / 24;
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${Math.floor(minutes)}m ago`;
+  if (hours < 24) return `${Math.floor(hours)}h ago`;
+  if (days < 90) return `${Math.floor(days)}d ago`;
+  if (days < 730) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
+/**
+ * The leading characters of a revision, enough to compare against a local
+ * `git rev-parse` by eye. Never ellipsised: an abbreviated SHA is something you
+ * copy, and a `…` in the middle of one is a trap.
+ *
+ * @param {string|null} revision
+ * @param {number} [width]
+ * @returns {string}
+ */
+export function abbreviateRevision(revision, width = 10) {
+  if (typeof revision !== 'string' || !revision) return '-';
+  return revision.slice(0, width);
+}
+
+/**
+ * Colour for a submit status. The status itself is the server's word, printed
+ * verbatim; only the colour is ours.
+ *
+ * @param {string} status
+ * @param {(code: string, text: string) => string} colorize
+ * @returns {string}
+ */
+export function colorSubmitStatus(status, colorize) {
+  switch (status) {
+    case 'OK':
+      return colorize('green', status);
+    case 'RULE_ERROR':
+      return colorize('red', status);
+    case 'UNKNOWN':
+      return colorize('dim', status);
+    default:
+      return colorize('yellow', status);
+  }
+}
+
+/**
  * @param {number} value
  * @returns {string}
  */

@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { TransportError } from '../src/core/errors.js';
-import { assertSafeQuery, buildSshArgs, parseQueryOutput, sshQuery } from '../src/core/ssh.js';
+import {
+  DETAIL_QUERY_FLAGS,
+  assertSafeQuery,
+  buildSshArgs,
+  parseQueryOutput,
+  sshQuery,
+} from '../src/core/ssh.js';
 import { queryChanges } from '../src/core/changes.js';
 import { Session } from '../src/core/session.js';
 import { fakeRunner, fixture } from './helpers.js';
@@ -17,6 +23,34 @@ test('the query asks for the three flags the readiness oracle needs', () => {
   assert.deepEqual(args.slice(0, 6), ['-p', '29418', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']);
   assert.ok(args.includes('ada@gerrit.example.com'));
   assert.ok(args.includes('limit:100'));
+});
+
+test('optional detail is added only when asked for, and only from the allowlist', () => {
+  const plain = buildSshArgs(CONN, 'change:184458');
+  assert.equal(plain.includes('--comments'), false, 'a list view must not pay for message timelines');
+  assert.equal(plain.includes('--dependencies'), false);
+
+  const detailed = buildSshArgs(CONN, 'change:184458', { include: ['comments', 'dependencies'] });
+  assert.ok(detailed.includes('--comments'));
+  assert.ok(detailed.includes('--dependencies'));
+  // Still before the query and the limit, which must stay the last two elements.
+  assert.deepEqual(detailed.slice(-2), ['change:184458', 'limit:100']);
+  assert.deepEqual(Object.keys(DETAIL_QUERY_FLAGS), ['comments', 'dependencies']);
+
+  const repeated = buildSshArgs(CONN, 'change:1', { include: ['comments', 'comments'] });
+  assert.equal(repeated.filter((a) => a === '--comments').length, 1);
+});
+
+test('a detail key the transport does not know is refused, never passed through', () => {
+  // `include` names a key, never a flag: nothing a caller supplies reaches argv.
+  for (const bad of ['--comments', 'patch-sets', 'constructor', '', '; id']) {
+    assert.throws(() => buildSshArgs(CONN, 'change:1', { include: [bad] }), (err) => {
+      assert.ok(err instanceof TransportError);
+      assert.equal(err.code, 'UNSAFE_QUERY');
+      assert.match(err.remedy, /comments, dependencies/);
+      return true;
+    }, `should have refused: ${bad}`);
+  }
 });
 
 test('no credential is ever an element of the ssh argv', () => {
