@@ -437,3 +437,8 @@ injectable, the real code paths run against them. Covered in particular:
 The one thing the suite cannot check on a machine without them is the
 `secret-tool` and `gpg` backends against a *real* keyring or GPG key; those are
 exercised against a stub.
+
+## Licence
+
+Apache-2.0. `LICENSE` has the full text; `NOTICE` carries the copyright, which is
+Spectralink Corporation's.
