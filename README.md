@@ -5,6 +5,10 @@ A read-only Gerrit CLI. It answers the questions a reviewer actually asks —
 change stand* — and prints the review comments, inline and cover, including the
 machine-generated ones.
 
+Two binaries over one library: `gerrit` renders for a person, `gerrit-axi` emits
+records for an agent. They are siblings, not wrappers — see
+[The agent tier](#the-agent-tier).
+
 **v0.1 is read-only.** It never votes, replies, sets reviewers or topics, submits,
 abandons, or pushes. Every operation is a query. The test suite enforces this: a
 grep for mutating REST verbs and mutating `gerrit` SSH subcommands runs as part of
@@ -30,6 +34,8 @@ Node 20 or newer. No runtime dependencies.
 git clone <this repo> && cd gerrit-axi
 npm link          # or: npm install -g .
 ```
+
+That installs both binaries: `gerrit` for a person, `gerrit-axi` for an agent.
 
 You also need:
 
@@ -67,7 +73,10 @@ Global options: `--host`, `--user`, `--port`, `--rest-base`, `--no-color`,
 `-h/--help`, `-V/--version`.
 
 Exit codes: `0` success, `1` other error, `2` usage, `3` configuration, `4`
-authentication, `5` transport.
+authentication, `5` transport. `gerrit-axi` uses the same ones.
+
+The `gerrit` command has no `--json`, and will not grow one. Machine-readable
+output is what the second binary is for.
 
 ### Where does this change stand
 
@@ -126,6 +135,142 @@ Three things worth knowing about that output:
   over a different transport. `[psN]` is read out of the message's own first
   line, which is a convention of Gerrit's message text rather than a field, so a
   message that does not say gets no marker.
+
+## The agent tier
+
+`gerrit-axi` is the second binary. It imports the core library and prints
+records; nothing in it renders a table, and nothing in it reads one. Same
+transport, same readiness oracle, same three-tier configuration, same exit
+codes — a different output contract.
+
+```text
+gerrit-axi status                      your attention set, as records
+gerrit-axi status mine                 your open changes
+gerrit-axi status <change>...          specific change numbers
+gerrit-axi status --query '<query>'    an arbitrary Gerrit query
+    --limit <n>                        maximum changes to fetch (default 100)
+
+gerrit-axi show <change>...            full review state, one record per change
+    --messages <n|all>                 also emit that many cover messages (default 0)
+    --comments                         also emit the inline comments
+    --bots | --humans                  with --comments: only / never machine-generated
+
+gerrit-axi comments <change>...        inline review comments on every change named
+    --bots | --humans                  only / never machine-generated
+
+gerrit-axi auth status                 whether the stored credential still works
+```
+
+Global options: `--json`, `--host`, `--user`, `--port`, `--project`,
+`--rest-base`, `-h/--help`, `-V/--version`. As with `gerrit`, every option is
+listed in `gerrit-axi --help` too.
+
+### Records, not layout
+
+Output is [TOON](https://toonformat.dev) on stdout, or strict JSON with `--json`.
+Both carry the same keys.
+
+```console
+$ gerrit-axi show 200101 200102 200103
+ok: true
+op: show
+count: 3
+missing: []
+changes[3]{change,subject,project,branch,topic,owner,status,wip,submit,submittable,blocked_on,patch_set,revision,ref,updated,created,url}:
+  200101,Split the queue reader out of the daemon,acme/apps/widget-console,main,stack-of-three,ada,NEW,false,OK,true,"",4,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,refs/changes/01/200101/4,"2026-07-31T22:13:20.000Z","2026-07-20T08:26:40.000Z","https://gerrit.example.com/c/acme/apps/widget-console/+/200101"
+  200102,Give the queue reader its own retry ceiling,acme/apps/widget-console,main,stack-of-three,ada,NEW,false,NOT_READY,false,"Xylophone-Gate,Zebu-Herding",2,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,refs/changes/02/200102/2,"2026-08-02T02:00:00.000Z","2026-07-21T12:13:20.000Z","https://gerrit.example.com/c/acme/apps/widget-console/+/200102"
+  200103,Wire the retry ceiling to the managed configuration,acme/apps/widget-console,main,stack-of-three,ada,NEW,true,NOT_READY,false,Quokka-Review,1,cccccccccccccccccccccccccccccccccccccccc,refs/changes/03/200103/1,"2026-08-03T05:46:40.000Z","2026-07-22T16:00:00.000Z","https://gerrit.example.com/c/acme/apps/widget-console/+/200103"
+labels[7]{change,label,status,blocking,by}:
+  200101,Quokka-Review,OK,false,grace
+  200101,Xylophone-Gate,OK,false,buildbot
+  200102,Quokka-Review,OK,false,grace
+  200102,Xylophone-Gate,NEED,true,null
+  200102,Zebu-Herding,NEED,true,null
+  200103,Quokka-Review,REJECT,true,alan
+  200103,Xylophone-Gate,OK,false,buildbot
+votes[6]{change,label,value,by,granted}:
+  200101,Quokka-Review,2,grace,"2026-07-31T21:56:40.000Z"
+  200101,Xylophone-Gate,1,buildbot,"2026-07-31T22:05:00.000Z"
+  200102,Quokka-Review,2,grace,"2026-08-02T01:43:20.000Z"
+  200103,Quokka-Review,1,grace,"2026-08-02T15:53:20.000Z"
+  200103,Quokka-Review,-2,alan,"2026-08-03T03:00:00.000Z"
+  200103,Xylophone-Gate,1,buildbot,"2026-08-02T18:40:00.000Z"
+depends_on[2]{change,related,revision,ref,current}:
+  200102,200101,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,refs/changes/01/200101/4,true
+  200103,200102,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,refs/changes/02/200102/1,false
+needed_by[2]{change,related,revision,ref,current}:
+  200101,200102,bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,refs/changes/02/200102/2,true
+  200102,200103,cccccccccccccccccccccccccccccccccccccccc,refs/changes/03/200103/1,true
+```
+
+Four properties are the point of that shape, and each one replaces a thing a
+shell script screen-scraping `gerrit`'s table had to do by hand:
+
+- **One invocation, a whole list.** A watch following a nine-change stack makes
+  one call and gets nine records. `status` and `show` both send a single
+  `gerrit query`; `comments` needs one REST call per change, because that is what
+  the endpoint offers.
+- **Labels are keyed by name, never by column.** Per-change scalars live in
+  `changes`; anything per-label lives in `labels` and `votes`, joined on
+  `(change, label)`. `200102` above carries a label the other two do not, and it
+  arrives as an extra row — no header changes, so nothing a consumer reads by
+  name moves. `blocked_on` is the server's own blocking-label list, joined, for a
+  watch that wants to diff one string; the `labels` table is the authority.
+- **Readiness is the server's verdict, not arithmetic over votes.** `submit`,
+  `submittable`, and each label's `status` come from `--submit-records` through
+  core's `deriveReadiness`. No label name appears anywhere in the tier.
+- **A change that is gone is data.** Numbers the server did not return come back
+  under `missing`, so "abandoned, or no longer visible to you" is distinguishable
+  from "the call failed".
+
+`show` asks the server for the cover messages only when `--messages` will emit
+them, because that detail costs work per row. The stack is always asked for: a
+parent revision going stale is what a stack watch exists to notice.
+
+### Inline comments
+
+Inline comments are where a reviewer actually reviews, and the SSH cover messages
+do not carry them — so this is the only path that reaches them, and `bot` is
+typed rather than implied:
+
+```console
+$ gerrit-axi comments 200103
+ok: true
+op: comments
+count: 3
+comments[3]{change,file,line,patch_set,author,bot,bot_kind,unresolved,severity,id,in_reply_to,updated,message}:
+  200103,/PATCHSET_LEVEL,null,1,review-assistant,true,ai-review,false,null,stk0001,null,"2026-08-03T07:41:02.000Z",Reviewed patch set 1. Found 1 issue.
+  200103,src/main/java/com/acme/widget/RetryCeiling.java,18,1,review-assistant,true,ai-review,true,null,stk0002,null,"2026-08-03T07:41:03.000Z","[issue] The managed value is read before the provider is bound."
+  200103,src/main/java/com/acme/widget/RetryCeiling.java,18,1,alan,false,null,true,null,stk0003,stk0002,"2026-08-03T09:02:55.000Z","Right, and the parent change has to land first."
+```
+
+`bot` is Gerrit's own `autogenerated:` tag convention and `bot_kind` is the
+suffix the bot declared, so a reviewer nobody has heard of is classified the
+first time it posts — see [Tier 1](#tier-1--derived-from-the-server). `severity`
+is `null` unless [tier-3 patterns](#tier-3--genuinely-local-convention) are
+configured. `gerrit-axi show --comments` adds this same table to a `show`, so one
+invocation can answer a whole watch.
+
+### Failures
+
+A failure writes a typed record to **stderr**, leaves stdout **empty**, and exits
+non-zero. A consumer never has to tell data from prose:
+
+```console
+$ gerrit-axi comments 200103; echo "exit=$?"
+ok: false
+op: comments
+error: "no such resource: /a/changes/200103/comments (HTTP 404)"
+code: NOT_FOUND
+kind: transport
+remedy: Check the change number; a change you cannot see also reads as 404.
+exit=5
+```
+
+`code` is core's machine-readable error code and `kind` is the class the exit code
+was chosen from (`usage`, `config`, `auth`, `transport`, `gerrit`, `internal`).
+`remedy` appears only when core supplied one, and is a hint for whoever reads the
+log — not a field to branch on.
 
 ## Authentication
 
@@ -334,12 +479,16 @@ what it removed (`projects under acme/`). A single-row result is never abbreviat
 
 ## Architecture
 
-One npm package, two internal modules, and a hard boundary between them.
+One npm package, three internal modules, and a hard boundary around the first.
 
 ```text
 src/core/   auth, transport, config resolution, typed models.  NO OUTPUT FORMATTING.
 src/cli/    human-facing rendering and interactive prompts.    bin: gerrit
+src/axi/    machine-facing records: TOON, or JSON.             bin: gerrit-axi
 ```
+
+`src/cli/` and `src/axi/` are siblings. Neither imports the other, and neither
+knows the other exists.
 
 Two rules decide whether this design survives, and both are enforced by tests in
 `test/layering.test.js`:
@@ -347,7 +496,7 @@ Two rules decide whether this design survives, and both are enforced by tests in
 1. **`src/core/` returns data and never formats it.** No tables, no colour, no
    column widths, no `console.log`. Nothing under `src/core/` knows what a table
    looks like; it returns plain typed objects and `src/cli/` decides how they look.
-2. **A future second binary will `import` core, not spawn the CLI.** A wrapper is
+2. **The second binary `import`s core; it does not spawn the CLI.** A wrapper is
    entitled to shell out to a CLI when that binary is foreign — compiled Go, say.
    Both of these layers are Node, so no subprocess boundary should ever exist
    between them. `src/core/index.js` is shaped as a library API over typed
@@ -369,10 +518,18 @@ Two rules decide whether this design survives, and both are enforced by tests in
    change.messages.flatMap((m) => m.urls);                   // where CI posted its logs
    ```
 
-An agent-facing binary is anticipated under `src/axi/`. It does not exist yet, and
-neither does any machine-readable output mode — that is deliberate, so the future
-layer has a reason to exist and imports the core library rather than parsing this
-CLI's tables.
+`src/axi/` is that second binary, and [The agent tier](#the-agent-tier) is what it
+prints. It reaches Gerrit only through `src/core/`: `main.js` dispatches and turns
+a thrown error into a record, `commands.js` calls core and assembles a document,
+`records.js` projects core's typed models onto named fields, and `toon.js`
+serialises. Its own tests read every table back by field name, the way a consumer
+does.
+
+That layout is why the human `gerrit` has no `--json`. A second output contract
+inside the renderer would have to be kept in step with the tables beside it,
+forever; a second binary over the same library has nothing to keep in step. So a
+request for machine-readable output is a request for `gerrit-axi`, and
+`test/layering.test.js` fails if `--json` appears under `src/cli/`.
 
 Every edge of the process — the HTTP client, the subprocess runner, the
 environment, the working directory — is a parameter rather than a global
@@ -431,6 +588,13 @@ injectable, the real code paths run against them. Covered in particular:
 - the credential store: file modes, per-host isolation, loud degradation, and a
   stub `secret-tool` that records its argv so "the token never appears in argv" is
   a test rather than a comment
+- the agent tier end to end from a recorded three-change stack: one invocation
+  returning one record per change, a label the server has grown arriving as a row
+  with no header change, the inline-comment path attributed per change, `--json`
+  carrying the same fields, and a failure landing on stderr as a typed record
+  with stdout empty
+- the TOON encoder's quoting and escaping, so a consumer can always tell a string
+  from a number, a null, or a delimiter
 - the layering rules, the absence of any hostname literal, and that v0.1 mutates
   nothing
 

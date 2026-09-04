@@ -4,12 +4,12 @@
  * A Session bundles resolved configuration with the injectable edges of the
  * process -- the subprocess runner and the HTTP client.
  *
- * It is the entry point of the library API. A second binary (see the note about
- * src/axi/ in the README) constructs a Session and calls the same functions the
- * CLI calls; it does not spawn `gerrit` and scrape stdout. Both layers are Node,
- * so no subprocess boundary should exist between them. That is why every
- * dependency here is a parameter rather than a global reference: the same code
- * path is what the tests drive, with no network and no Gerrit server.
+ * It is the entry point of the library API. The agent tier in src/axi/ constructs
+ * a Session and calls the same functions the CLI calls; it does not spawn
+ * `gerrit` and scrape stdout. Both layers are Node, so no subprocess boundary
+ * should exist between them. That is why every dependency here is a parameter
+ * rather than a global reference: the same code path is what the tests drive,
+ * with no network and no Gerrit server.
  */
 
 import { resolveConfig } from './config.js';

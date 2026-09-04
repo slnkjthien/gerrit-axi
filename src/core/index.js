@@ -7,9 +7,9 @@
  *
  *  1. Core returns data and never formats it. No tables, no colour, no column
  *     widths, no console.log. Nothing under src/core/ knows what a table looks
- *     like. Rendering lives in src/cli/ and only there.
+ *     like. Rendering lives in src/cli/ and src/axi/, and only there.
  *
- *  2. A future second binary imports this module. It does not spawn the CLI and
+ *  2. The second binary imports this module. It does not spawn the CLI and
  *     parse its output: both layers are Node, so there is no reason for a
  *     subprocess boundary between them. Everything below is therefore shaped as a
  *     callable API over typed objects, not as something to be screen-scraped.

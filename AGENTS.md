@@ -16,7 +16,7 @@ These are load-bearing design decisions, not preferences. `test/layering.test.js
 fails if any of them is broken, which is the intended way to find out.
 
 - `src/core/` returns data and never formats it: no tables, colour, column widths,
-  or `console.*`. Rendering lives only in `src/cli/`.
+  or `console.*`. Rendering lives only in `src/cli/` and `src/axi/`.
 - No hostname literal anywhere in `src/` or `bin/` (RFC 2606 `example.*` names in
   usage text are the only exception). Host/port/user/project come from the
   `origin` git remote, then env, then config file — see the three-tier model in
@@ -41,14 +41,18 @@ fails if any of them is broken, which is the intended way to find out.
   is the trap), and never name a specific organisation, project-path prefix, or
   server version in code, tests, comments or docs. `test/layering.test.js` catches
   the hostname and project-prefix cases; the rest is on review.
-- `src/axi/` and any machine-readable output mode are deliberately absent, so the
-  future agent-facing binary imports `src/core/index.js` instead of parsing the
-  CLI. Do not create either without a task that asks for it. A request for
-  machine-readable output is a request for that binary, not for a `--json` flag.
-- Every subcommand's options are listed in the top-level `gerrit --help` as well
-  as in its own usage string. Options that appear only in the subcommand's help
-  have been missed in practice; `test/review-state.test.js` checks the top-level
-  help mentions them.
+- `src/axi/` is the agent tier, behind the `gerrit-axi` binary: it imports
+  `src/core/` and prints records (TOON by default, JSON under `--json`). It is a
+  sibling of `src/cli/`, not a wrapper — it must never import a renderer, parse a
+  table, or re-derive readiness. Its records are flat tables joined on
+  `(change, label)`, never one nested object per change, because that is what
+  survives a server growing a label. Errors go to stderr as a typed record with
+  stdout empty. `gerrit` still has no `--json` and must not grow one: a request
+  for machine-readable output is a request for `gerrit-axi`.
+- Every subcommand's options are listed in the top-level `--help` of its own
+  binary as well as in its usage string. Options that appear only in the
+  subcommand's help have been missed in practice; `test/review-state.test.js` and
+  `test/axi.test.js` check the top-level help mentions them.
 
 ## Credential handling
 

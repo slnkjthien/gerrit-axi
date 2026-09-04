@@ -1,13 +1,14 @@
 {
   "name": "gerrit-axi",
   "version": "0.1.0",
-  "description": "Read-only Gerrit CLI: attention set, change readiness, and inline review comments.",
+  "description": "Read-only Gerrit CLI plus an agent tier: attention set, change readiness, and inline review comments.",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"
   },
   "bin": {
-    "gerrit": "bin/gerrit.js"
+    "gerrit": "bin/gerrit.js",
+    "gerrit-axi": "bin/gerrit-axi.js"
   },
   "exports": {
     ".": "./src/core/index.js",
