@@ -15,7 +15,7 @@ import { readFile } from 'node:fs/promises';
 import { AuthError, ConfigError, GerritError, TransportError } from '../core/errors.js';
 import { createSession } from '../core/session.js';
 import { parseArgs } from './args.js';
-import { opAuth, opComments, opShow, opStatus } from './commands.js';
+import { opAuth, opComments, opPublish, opShow, opStatus, opSubmit } from './commands.js';
 import { UsageError, errorRecord, serialize } from './output.js';
 
 /** Same codes the human CLI uses, so a caller can drive either interchangeably. */
@@ -28,7 +28,7 @@ export const EXIT = {
   transport: 5,
 };
 
-const USAGE = `gerrit-axi - Gerrit review state as records, for agents
+const USAGE = `gerrit-axi - Gerrit for agents: review state as records, publish, and submit
 
 usage: gerrit-axi <command> [options]
 
@@ -49,6 +49,13 @@ commands, and the options each one takes:
   comments <change>...        inline review comments on every change named
       --bots | --humans       only / never machine-generated
   auth status                 whether the stored credential still works
+  publish --stack --topic <t> every commit on HEAD since it left the server's
+                              branch becomes its own change, under topic <t>
+  publish --squash            those commits become one change
+      --branch <b>            the branch to propose against (default: the
+                              server's default branch)
+  submit <change>             ask the server to submit one change; a refusal is
+                              reported in the server's own words
 
 global options:
   --json          strict JSON instead of TOON
@@ -60,7 +67,7 @@ global options:
   -h, --help      show this help
   -V, --version   print the version
 
-Every command answers about a whole list of changes in one invocation. Per-change
+Every read answers about a whole list of changes in one invocation. Per-change
 scalars arrive in the 'changes' table; anything per-label arrives in 'labels' and
 'votes', keyed by change number and label name, so a label the server gains adds
 a row and moves no column.
@@ -72,8 +79,13 @@ from the config file. There is no built-in default host.
 Exit codes: 0 success, 1 other error, 2 usage, 3 configuration, 4 authentication,
 5 transport.
 
-Read-only, like the rest of the tool: it never votes, comments, or mutates
-anything.`;
+publish keeps every Change-Id a commit already carries, verbatim: the same
+Change-Id is what makes a push a new patch set of the same change. A commit
+without one gets one stamped into its message, and the local branch is rewritten
+to keep it (messages only; the working tree is untouched).
+
+It publishes and submits, and it cannot vote: no command records a label, and
+whether a change may be submitted is decided by the server alone.`;
 
 /** Command-specific flags. Everything here is also listed in USAGE above. */
 const FLAG_SPECS = {
@@ -84,6 +96,11 @@ const FLAG_SPECS = {
   },
   comments: { withValue: new Set(), boolean: new Set(['--bots', '--humans']) },
   auth: { withValue: new Set(), boolean: new Set() },
+  publish: {
+    withValue: new Set(['--topic', '--branch']),
+    boolean: new Set(['--stack', '--squash']),
+  },
+  submit: { withValue: new Set(), boolean: new Set() },
 };
 
 const OPS = {
@@ -91,6 +108,8 @@ const OPS = {
   show: opShow,
   comments: opComments,
   auth: opAuth,
+  publish: opPublish,
+  submit: opSubmit,
 };
 
 /**

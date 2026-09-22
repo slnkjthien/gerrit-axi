@@ -1,7 +1,7 @@
 {
   "name": "gerrit-axi",
-  "version": "0.1.0",
-  "description": "Read-only Gerrit CLI plus an agent tier: attention set, change readiness, and inline review comments.",
+  "version": "0.2.0",
+  "description": "A read-only Gerrit CLI, and an agent tier that can also publish and submit: attention set, change readiness, inline review comments. Neither can vote.",
   "type": "module",
   "engines": {
     "node": ">=20.0.0"

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Guards on the two architectural rules. These are the tests that fail if a later
- * change quietly dissolves the layering, which is the failure mode worth catching
- * mechanically rather than in review.
+ * Guards on the two architectural rules, and on the vote ban. These are the tests
+ * that fail if a later change quietly dissolves the layering or opens a path to a
+ * vote, which is the failure mode worth catching mechanically rather than in
+ * review.
  */
 
 import assert from 'node:assert/strict';
@@ -184,6 +185,8 @@ test('the core entry point exposes the library API a second binary would import'
     'authStatus',
     'loginWithToken',
     'logout',
+    'publishChanges',
+    'submitChange',
     'GerritError',
   ]) {
     assert.equal(typeof core[name] !== 'undefined', true, `core must export ${name}`);
@@ -194,20 +197,56 @@ test('the core entry point exposes the library API a second binary would import'
   }
 });
 
-test('v0.1 is read-only: no mutating Gerrit call appears in the codebase', () => {
-  const files = [...jsFilesUnder(SRC_DIR), path.join(REPO_ROOT, 'bin', 'gerrit.js')];
-  const mutations = [
-    /\bmethod:\s*['"](?:POST|PUT|DELETE|PATCH)['"]/i,
-    /gerrit\s+review\b/,
-    /gerrit\s+set-reviewers\b/,
-    /gerrit\s+set-topic\b/,
-    /\bgit\s+push\b/,
+test('voting is structurally impossible: no voting command or voting path exists anywhere', () => {
+  // THE PROPERTY THIS TEST HOLDS. gerrit-axi publishes and submits, and it cannot
+  // vote. Submitting cannot get round the votes: the server evaluates its own
+  // submit rules and refuses a change they do not support. Voting is what would
+  // get round them. A tool that can record an approval lets an agent manufacture
+  // one and then submit legitimately against it, and that vote reads -- to
+  // colleagues and to any audit of the repository -- as a named person having
+  // approved. The durable control is the account's label permissions on the
+  // server; this test keeps the tool's own path from ever being what tests them.
+  //
+  // So this is a ban, not a review note: a later change that adds a way to vote
+  // fails here, whatever it was meant for. It is a universal claim -- no path
+  // anywhere names a voting command -- which only a scan of the whole codebase
+  // can state, so it reads source text on purpose.
+  //
+  // test/vote-ban.test.js is its runtime complement, not a duplicate: it drives
+  // every agent-tier operation and checks what actually leaves the process,
+  // which catches a value assembled at runtime that no grep can see, but only on
+  // the paths it drives. This test covers the whole source, which no test that
+  // runs code can. Each catches failures the other misses; delete neither.
+  const WHY = 'gerrit-axi must be structurally unable to vote: a tool that can record an '
+    + 'approval lets an agent manufacture one and submit against it, and the vote reads '
+    + 'as a person having approved. No voting command or voting path may appear anywhere '
+    + 'in the code. This source scan and the runtime check in test/vote-ban.test.js catch '
+    + 'different failures -- this one covers the whole source, that one sees values '
+    + 'assembled at runtime -- and neither is redundant.';
+  const files = [
+    ...jsFilesUnder(SRC_DIR),
+    path.join(REPO_ROOT, 'bin', 'gerrit.js'),
+    path.join(REPO_ROOT, 'bin', 'gerrit-axi.js'),
   ];
-  for (const file of files) {
-    const code = stripComments(readFileSync(file, 'utf8'));
-    for (const pattern of mutations) {
-      assert.equal(pattern.test(code), false,
-        `${path.relative(REPO_ROOT, file)} looks like it mutates Gerrit: ${pattern}`);
+  const code = new Map(files.map((file) => [file, stripComments(readFileSync(file, 'utf8'))]));
+  const rel = (/** @type {string} */ file) => path.relative(REPO_ROOT, file);
+
+  // No voting vocabulary, in any spelling a caller could reach.
+  const votingPaths = [
+    [/\bgerrit\b[\s'"`,]*\breview\b/, 'the gerrit review SSH command, as a string or as argv'],
+    [/['"`]review['"`\s]/, 'review as an argv element'],
+    [/--(?:code-review|verified)\b|--label[\s'"`,=]+['"`]?(?:\$\{|[A-Za-z0-9-]+=)/,
+      'a gerrit review scoring flag (--label NAME=VALUE; secret-tool\'s --label=<text> is not one)'],
+    [/\/review/, 'a REST path to the review endpoint, where votes are recorded'],
+    [/\/votes\b/, 'a REST path to the votes endpoint, where votes are deleted'],
+    [/[%,](?:l|label)=/, 'a label option on a push, which votes as the push lands'],
+    [/set-reviewers/, 'gerrit set-reviewers'],
+    [/set-topic/, 'gerrit set-topic (a topic is set on the push instead)'],
+  ];
+  for (const [file, text] of code) {
+    for (const [pattern, what] of votingPaths) {
+      assert.equal(/** @type {RegExp} */ (pattern).test(text), false,
+        `${rel(file)} contains ${what} (${pattern}). ${WHY}`);
     }
   }
 });

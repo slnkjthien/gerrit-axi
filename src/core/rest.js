@@ -3,7 +3,8 @@
 /**
  * REST transport.
  *
- * The REST channel exists because SSH cannot reach inline comments. Gerrit
+ * The REST channel exists because SSH cannot reach inline comments, and it
+ * carries the submit, which needs no SSH subcommand that could also vote. Gerrit
  * answers `WWW-Authenticate: Basic realm="Gerrit Code Review"`: this is HTTP
  * Basic carrying a Gerrit authentication token, *not* an OAuth bearer token.
  *
@@ -16,6 +17,10 @@
  *
  * Credentials travel in request headers of an in-process HTTP client. We never
  * shell out to curl, so they never touch a command line.
+ *
+ * Every request is a GET except one: `restSubmit`. There is no general-purpose
+ * write here, so no other endpoint -- the review endpoint that records votes
+ * above all -- can be reached by passing it a path.
  */
 
 import { AuthError, TransportError } from './errors.js';
@@ -80,21 +85,24 @@ export function basicAuthHeader(user, token) {
  */
 
 /**
- * Authenticated GET returning the raw body plus status. Does not throw on HTTP
- * status; `restGetJson` applies the status policy.
+ * The one place a request carrying the token is made. `init` supplies the method
+ * and, for the submit below, a body; the credential header and the redirect
+ * policy are added here and cannot be left out by a caller.
  *
  * @param {RestTarget} target
  * @param {string} apiPath   path beginning with "/a/"
+ * @param {{method: string, headers?: Record<string, string>, body?: string}} init
  * @returns {Promise<{status: number, body: string, headers: Headers}>}
  */
-export async function restGetRaw(target, apiPath) {
+async function authorizedFetch(target, apiPath, init) {
   const doFetch = target.fetchImpl ?? globalThis.fetch;
   const url = `${target.restBase.replace(/\/+$/, '')}${apiPath}`;
   let res;
   try {
     res = await doFetch(url, {
-      method: 'GET',
+      ...init,
       headers: {
+        ...init.headers,
         // The only place the token appears.
         Authorization: basicAuthHeader(target.user, target.token),
         Accept: 'application/json',
@@ -106,6 +114,18 @@ export async function restGetRaw(target, apiPath) {
     throw new TransportError(`could not reach ${url}`, { code: 'HTTP_ERROR', cause: err });
   }
   return { status: res.status, body: await res.text(), headers: res.headers };
+}
+
+/**
+ * Authenticated GET returning the raw body plus status. Does not throw on HTTP
+ * status; `restGetJson` applies the status policy.
+ *
+ * @param {RestTarget} target
+ * @param {string} apiPath   path beginning with "/a/"
+ * @returns {Promise<{status: number, body: string, headers: Headers}>}
+ */
+export function restGetRaw(target, apiPath) {
+  return authorizedFetch(target, apiPath, { method: 'GET' });
 }
 
 /**
@@ -161,6 +181,37 @@ export function assertRestOk(status, apiPath, restBase = '') {
       }
       throw new TransportError(`unexpected HTTP ${status} for ${apiPath}`, { code: 'HTTP_ERROR' });
   }
+}
+
+/**
+ * Ask the server to submit a change -- the only write this client makes.
+ *
+ * Whether the change may be submitted is not decided here. Gerrit evaluates its
+ * submit rules on the server at the moment of the request and refuses, with HTTP
+ * 409, a change the votes do not support; that refusal is the safety property, so
+ * it is passed back in the server's own words rather than summarised. A 403 is
+ * the account lacking the permission to submit at all, and is reported the same
+ * way. Everything else follows the status policy above.
+ *
+ * @param {RestTarget} target
+ * @param {number|string} change   change number
+ * @returns {Promise<any>} the server's ChangeInfo for the submitted change
+ */
+export async function restSubmit(target, change) {
+  const apiPath = `/a/changes/${encodeURIComponent(String(change))}/submit`;
+  const { status, body } = await authorizedFetch(target, apiPath, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+    body: '{}',
+  });
+  if (status === 409 || status === 403) {
+    const said = stripXssiPrefix(body).trim() || `HTTP ${status}`;
+    throw new TransportError(`Gerrit refused to submit change ${change}: ${said}`, {
+      code: status === 409 ? 'SUBMIT_REFUSED' : 'FORBIDDEN',
+    });
+  }
+  assertRestOk(status, apiPath, target.restBase);
+  return parseGerritJson(body, apiPath);
 }
 
 /**

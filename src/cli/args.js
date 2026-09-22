@@ -3,8 +3,8 @@
 /**
  * Argument parsing.
  *
- * Hand-rolled rather than pulled from npm: the surface is small, and v0.1 has no
- * runtime dependencies at all.
+ * Hand-rolled rather than pulled from npm: the surface is small, and the package
+ * has no runtime dependencies at all.
  */
 
 export class UsageError extends Error {

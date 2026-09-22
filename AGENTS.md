@@ -41,8 +41,20 @@ fails if any of them is broken, which is the intended way to find out.
   an option. `resolveConfig` enforces this through `assertSafeConnection` in
   `src/core/ssh.js`, so a transport built on the resolved config inherits it; one
   taking a connection from anywhere else must call it itself.
-- v0.1 is read-only. No mutating REST verb and no mutating `gerrit` SSH
-  subcommand may appear in the codebase.
+- Nothing can vote. The only writes are `gerrit-axi publish` (one push to
+  `refs/for/`, built only by `buildPushArgs` in `src/core/publish.js`) and
+  `gerrit-axi submit` (the one POST, in `restSubmit` in `src/core/rest.js`); the
+  human `gerrit` stays read-only. `gerrit review` in any spelling, a REST
+  `/review` or `/votes` path, `set-reviewers`, `set-topic`, and a label option on
+  a push may not appear in the code; the layering test fails if one does. That
+  check reads source text on purpose, an exception to asserting behaviour: a
+  security invariant needs a whole-source claim. `test/vote-ban.test.js` is its
+  runtime complement; keep both. Those two are the only writes by design: add no
+  other.
+- `publish` never regenerates a Change-Id: a new one creates a different change
+  and orphans the original's review. An existing one is pushed verbatim; a
+  missing one is stamped and written back into the local branch (messages only)
+  so the next publish reuses it.
 - Prose is written for a stranger running their own server: never assert a fact
   about *the reader's* Gerrit that the tool has not checked (`git_basic_auth_policy`
   is the trap), and never name a specific organisation, project-path prefix, or

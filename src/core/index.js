@@ -27,6 +27,11 @@
  * voted and when, the stack, and the cover messages with the URLs they carry:
  *
  *     const [change] = await queryChangeDetails(session, [184458]);
+ *
+ * ...and the two writes, which are all there are -- nothing here can vote:
+ *
+ *     const publication = await publishChanges(session, { shape: 'stack', topic: 'retry' });
+ *     const merged = await submitChange(session, 184458);   // the server may refuse
  */
 
 export { Session, createSession } from './session.js';
@@ -92,6 +97,7 @@ export {
   parseGerritJson,
   restGetJson,
   restGetRaw,
+  restSubmit,
   stripXssiPrefix,
   verifyToken,
 } from './rest.js';
@@ -104,6 +110,18 @@ export {
   parseQueryOutput,
   sshQuery,
 } from './ssh.js';
+
+export {
+  buildPushArgs,
+  footerChangeIds,
+  parsePushResult,
+  publishChanges,
+  pushUrl,
+  randomChangeId,
+  stampChangeId,
+} from './publish.js';
+
+export { submitChange } from './submit.js';
 
 export { AuthError, ConfigError, GerritError, TransportError } from './errors.js';
 

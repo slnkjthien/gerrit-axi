@@ -312,6 +312,15 @@ test('a failure is a typed record on stderr, never prose on stdout', async () =>
     { argv: ['status', '--limit', 'lots'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['comments', '1', '--bots', '--humans'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['auth', 'login'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    // The shape is named, never guessed, and a stack needs the topic that makes it one.
+    { argv: ['publish'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['publish', '--stack', '--squash', '--topic', 't'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['publish', '--stack'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['publish', '--squash', 'HEAD'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['publish', '--squash', '--topic', 't'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['submit'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['submit', '200101', '200102'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['submit', 'HEAD'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
   ];
   for (const expected of cases) {
     const { code, out, err } = await run(expected.argv);
@@ -511,6 +520,122 @@ test('the package declares both binaries and leaves the human one alone', () => 
   // The agent tier is reached by its own binary, not by a flag on the human one.
   const humanUsage = readFileSync(path.join(SRC_DIR, 'cli', 'main.js'), 'utf8');
   assert.equal(humanUsage.includes('--json'), false, 'the human CLI has no --json');
+});
+
+test('publish --stack is one push, answered with the changes the server now holds', async () => {
+  const base = '0'.repeat(40);
+  const [a, b, c] = ['a', 'b', 'c'].map((x) => x.repeat(40));
+  const record = (/** @type {string} */ sha, /** @type {string} */ parent, /** @type {string} */ subject) => [
+    sha, sha, parent, 'Ada', 'ada@example.com', '1785600000 +0000', 'Ada', 'ada@example.com',
+    '1785600000 +0000', `${subject}\n\nChange-Id: I${sha}\n`,
+  ].join('\0') + '\0';
+  const runner = fakeRunner([
+    { match: (f, args) => f === 'git' && args.includes('remote'), result: { stdout: REMOTE } },
+    {
+      match: (f, args) => f === 'git' && args.includes('ls-remote'),
+      result: { stdout: `ref: refs/heads/main\tHEAD\n${base}\tHEAD\n` },
+    },
+    { match: (f, args) => f === 'git' && args.includes(`${base}^{commit}`), result: { stdout: base } },
+    { match: (f, args) => f === 'git' && args.includes('HEAD^{commit}'), result: { stdout: c } },
+    { match: (f, args) => f === 'git' && args.includes('merge-base'), result: { stdout: base } },
+    {
+      match: (f, args) => f === 'git' && args.includes('log'),
+      result: {
+        stdout: record(a, base, 'Split the queue reader out of the daemon')
+          + record(b, a, 'Give the queue reader its own retry ceiling')
+          + record(c, b, 'Wire the retry ceiling to the managed configuration'),
+      },
+    },
+    {
+      match: (f, args) => f === 'git' && args.includes('push'),
+      result: { stdout: `To x\n*\t${c}:refs/for/main%topic=stack-of-three\t[new reference]\nDone\n` },
+    },
+    { match: (f) => f === 'ssh', result: { stdout: fixture('query-stack.txt') } },
+  ]);
+  const stdout = captureStream();
+  const code = await main(['publish', '--stack', '--topic', 'stack-of-three'], {
+    cwd: '/some/checkout',
+    env: ENV,
+    stdout: stdout.stream,
+    stderr: captureStream().stream,
+    runner,
+    fetchImpl: fakeFetch([]),
+  });
+  assert.equal(code, EXIT.ok);
+
+  const pushes = runner.calls.filter((call) => call.file === 'git' && call.args.includes('push'));
+  assert.equal(pushes.length, 1);
+  assert.equal(pushes[0].args.at(-1), `${c}:refs/for/main%topic=stack-of-three`);
+
+  assert.match(stdout.text, /^op: publish$/m);
+  assert.match(stdout.text, /^shape: stack$/m);
+  assert.match(stdout.text, /^new_patch_sets: true$/m);
+  assert.match(stdout.text, /^rewritten_from: null$/m, 'every commit had its Change-Id, so the branch is untouched');
+  const published = table(stdout.text, 'published');
+  assert.deepEqual(published.map((p) => [p.change, p.change_id, p.stamped, p.patch_set, p.current]), [
+    ['200101', `I${a}`, 'false', '4', 'true'],
+    ['200102', `I${b}`, 'false', '2', 'true'],
+    ['200103', `I${c}`, 'false', '1', 'true'],
+  ]);
+  // Joined to the same per-change table every other command emits.
+  assert.deepEqual(table(stdout.text, 'changes').map((row) => [row.change, row.topic]), [
+    ['200101', 'stack-of-three'],
+    ['200102', 'stack-of-three'],
+    ['200103', 'stack-of-three'],
+  ]);
+});
+
+test('submit asks the server and nothing else, and reports what it merged', async () => {
+  const restored = Session.prototype.token;
+  Session.prototype.token = async () => ({ token: 'placeholder-not-a-real-token', backend: 'file', location: null });
+  try {
+    const { code, out, runner } = await run(['submit', '200101'], {
+      fetchRoutes: [{
+        path: '/a/changes/200101/submit',
+        body: ")]}'\n" + JSON.stringify({
+          _number: 200101,
+          change_id: `I${'a'.repeat(40)}`,
+          project: 'acme/apps/widget-console',
+          branch: 'main',
+          topic: 'stack-of-three',
+          subject: 'Split the queue reader out of the daemon',
+          status: 'MERGED',
+        }),
+      }],
+    });
+    assert.equal(code, EXIT.ok);
+    // Readiness is the server's call at the moment of the submit, so nothing is
+    // queried first to second-guess it.
+    assert.equal(runner.calls.filter((call) => call.file === 'ssh').length, 0);
+    assert.match(out, /^op: submit$/m);
+    assert.match(out, /^change: 200101$/m);
+    assert.match(out, /^status: MERGED$/m);
+    assert.match(out, /^topic: stack-of-three$/m);
+  } finally {
+    Session.prototype.token = restored;
+  }
+});
+
+test('a submit the server refuses is an error record carrying the server\'s own words', async () => {
+  const restored = Session.prototype.token;
+  Session.prototype.token = async () => ({ token: 'placeholder-not-a-real-token', backend: 'file', location: null });
+  try {
+    const refusal = "Change 200102: submit requirement 'Zebu-Herding' is unsatisfied";
+    const { code, out, err, runner } = await run(['submit', '200102', '--json'], {
+      fetchRoutes: [{ path: '/a/changes/200102/submit', status: 409, body: refusal }],
+    });
+    assert.equal(code, EXIT.transport);
+    assert.equal(out, '');
+    assert.equal(runner.calls.filter((call) => call.file === 'ssh').length, 0);
+    const record = JSON.parse(err);
+    assert.deepEqual(
+      { ok: record.ok, op: record.op, code: record.code, kind: record.kind },
+      { ok: false, op: 'submit', code: 'SUBMIT_REFUSED', kind: 'transport' },
+    );
+    assert.equal(record.error, `Gerrit refused to submit change 200102: ${refusal}`);
+  } finally {
+    Session.prototype.token = restored;
+  }
 });
 
 test('TOON: a table declares its own field names, and every value round-trips', () => {

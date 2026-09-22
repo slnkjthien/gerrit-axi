@@ -38,20 +38,24 @@ export function fixtureJson(name) {
 /**
  * A `Runner` that answers from a table of expectations instead of spawning
  * anything. Unmatched commands fail loudly, so a test can never accidentally
- * shell out for real.
+ * shell out for real. A route's result may be a function of the call, for a
+ * command whose answer depends on its input.
  *
+ * @typedef {{code?: number, stdout?: string, stderr?: string}} FakeResult
  * @param {Array<{match: (file: string, args: string[]) => boolean,
- *                result: {code?: number, stdout?: string, stderr?: string}}>} routes
+ *                result: FakeResult | ((file: string, args: string[],
+ *                                       opts: {input?: string, env?: NodeJS.ProcessEnv}) => FakeResult)}>} routes
  */
 export function fakeRunner(routes) {
-  /** @type {Array<{file: string, args: string[], input?: string}>} */
+  /** @type {Array<{file: string, args: string[], input?: string, env?: NodeJS.ProcessEnv}>} */
   const calls = [];
   /** @type {import('../src/core/exec.js').Runner} */
   const runner = async (file, args, opts = {}) => {
-    calls.push({ file, args, input: opts.input });
+    calls.push({ file, args, input: opts.input, env: opts.env });
     const route = routes.find((r) => r.match(file, args));
     if (!route) throw new Error(`fakeRunner: unexpected command: ${file} ${args.join(' ')}`);
-    return { code: route.result.code ?? 0, stdout: route.result.stdout ?? '', stderr: route.result.stderr ?? '' };
+    const result = typeof route.result === 'function' ? route.result(file, args, opts) : route.result;
+    return { code: result.code ?? 0, stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
   };
   return Object.assign(runner, { calls });
 }
@@ -63,12 +67,13 @@ export function fakeRunner(routes) {
  *                headers?: Record<string, string>}>} routes
  */
 export function fakeFetch(routes) {
-  /** @type {Array<{url: string, headers: Record<string, string>}>} */
+  /** @type {Array<{url: string, method: string|undefined, headers: Record<string, string>,
+   *                 body: string|undefined, redirect: string|undefined}>} */
   const calls = [];
   /** @type {any} */
   const impl = async (url, init = {}) => {
     const headers = Object.fromEntries(Object.entries(init.headers ?? {}));
-    calls.push({ url: String(url), headers });
+    calls.push({ url: String(url), method: init.method, headers, body: init.body, redirect: init.redirect });
     const route = routes.find((r) => (
       typeof r.path === 'string' ? String(url).endsWith(r.path) : r.path.test(String(url))
     ));
