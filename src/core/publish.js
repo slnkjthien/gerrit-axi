@@ -500,7 +500,7 @@ function identityEnv(author, committer) {
  * @returns {Promise<string>} the new commit
  */
 async function commitTree(session, tree, parent, message, ident) {
-  const sha = (await gitOk(session, ['commit-tree', tree, '-p', parent], {
+  const sha = (await gitOk(session, ['commit-tree', '--no-gpg-sign', tree, '-p', parent], {
     input: message,
     env: { ...session.env, ...ident },
   })).trim();

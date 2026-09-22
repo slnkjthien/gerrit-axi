@@ -242,12 +242,14 @@ test('a stack keeps every existing Change-Id verbatim and stamps, and keeps, the
     newChangeId: () => /** @type {string} */ (ids.shift()),
   });
 
-  // Every rebuilt commit keeps its tree, sits on the rebuilt parent, and keeps its
-  // author and committer to the second.
+  // Every rebuilt commit keeps its tree, sits on the rebuilt parent, is pinned
+  // unsigned whatever the configuration, and keeps its author and committer to
+  // the second.
   const rebuilt = gitCalls(runner, 'commit-tree');
-  assert.deepEqual(rebuilt.map((c) => c.args.slice(-4)),
-    [['commit-tree', 'a'.repeat(40), '-p', BASE], ['commit-tree', 'b'.repeat(40), '-p', n1],
-      ['commit-tree', 'c'.repeat(40), '-p', n2]]);
+  assert.deepEqual(rebuilt.map((c) => c.args.slice(-5)),
+    [['commit-tree', '--no-gpg-sign', 'a'.repeat(40), '-p', BASE],
+      ['commit-tree', '--no-gpg-sign', 'b'.repeat(40), '-p', n1],
+      ['commit-tree', '--no-gpg-sign', 'c'.repeat(40), '-p', n2]]);
   assert.equal(rebuilt[0].input, `Split the reader out\n\nBody.\n\nChange-Id: ${fresh[0]}\n`);
   assert.equal(rebuilt[1].input, second, 'a message that already had a Change-Id is passed through byte for byte');
   assert.equal(rebuilt[2].input, `Wire the ceiling\n\nChange-Id: ${fresh[1]}\n`);
@@ -325,7 +327,7 @@ test('a squash is HEAD\'s tree on the base, under the oldest message, and only t
   assert.equal(gitCalls(runner, 'update-ref').length, 0);
   const built = gitCalls(runner, 'commit-tree');
   assert.equal(built.length, 1);
-  assert.deepEqual(built[0].args.slice(-4), ['commit-tree', 'c'.repeat(40), '-p', BASE]);
+  assert.deepEqual(built[0].args.slice(-5), ['commit-tree', '--no-gpg-sign', 'c'.repeat(40), '-p', BASE]);
   assert.equal(built[0].input, oldest);
   // Author of the work, committer of its latest state: the same branch always
   // squashes to the same commit.
