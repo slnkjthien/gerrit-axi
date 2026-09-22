@@ -539,12 +539,14 @@ reference. That is what lets the whole stack be driven from recorded fixtures.
 
 Two channels, both necessary:
 
-- **SSH** — `ssh -p <port> <user>@<host> gerrit query --format=JSON
+- **SSH** — `ssh -p <port> -- <user>@<host> gerrit query --format=JSON
   --current-patch-set --all-approvals --submit-records ...` for change queries.
   Those three flags are what make the readiness oracle possible. Gerrit's SSH
   daemon parses the remote command itself, but host and port are data read off a
   git remote, so queries are screened for shell metacharacters before being sent
-  in case they arrive somewhere with a real shell.
+  in case they arrive somewhere with a real shell. For the same reason a user or
+  host that begins with `-` is refused wherever it came from, since ssh would
+  read it as an option rather than a destination.
 
   `gerrit show` adds `--comments` (the cover messages) and `--dependencies` (the
   stack, with its `isCurrentPatchSet` flag). Both are opt-in per call, and named

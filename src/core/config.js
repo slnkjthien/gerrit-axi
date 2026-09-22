@@ -43,6 +43,7 @@ import {
   parseRemoteUrl,
   readGitRemoteUrl,
 } from './remote.js';
+import { assertSafeConnection } from './ssh.js';
 
 /** @typedef {'override'|'git-remote'|'env'|'config-file'|'derived'} SourceName */
 
@@ -262,6 +263,7 @@ export async function resolveConfig(overrides = {}, deps = {}) {
       remedy: 'Set GERRIT_USER, add "user" to the config file, or pass --user <name>.',
     });
   }
+  assertSafeConnection({ host, user }, sources);
 
   const project = pick('project', [
     ['override', overrides.project],

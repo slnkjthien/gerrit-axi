@@ -150,6 +150,47 @@ test('a non-zero ssh exit becomes an actionable transport error', async () => {
   );
 });
 
+test('an ssh failure never puts the resolved user or host in the suggested command', async () => {
+  const conn = { host: 'gerrit.example.com', port: 29418, user: 'a$(touch pwned)' };
+  const stderr = 'a$(touch pwned)@gerrit.example.com: Permission denied (publickey).';
+  const runner = fakeRunner([{
+    match: (f) => f === 'ssh',
+    result: { code: 255, stderr: `${stderr}\n` },
+  }]);
+  await assert.rejects(
+    () => sshQuery(conn, 'status:open', { runner }),
+    (err) => {
+      assert.equal(err.code, 'SSH_FAILED');
+      assert.equal(err.message, `ssh to Gerrit failed: ${JSON.stringify(stderr)}`);
+      assert.equal(err.remedy.includes('$(touch pwned)'), false, err.remedy);
+      assert.equal(err.remedy.includes('gerrit.example.com'), false, err.remedy);
+      assert.match(err.remedy, /ssh -p 29418 -- <user>@<host> gerrit version/);
+      return true;
+    },
+  );
+});
+
+test('an ssh failure never passes a raw control character through to the terminal', async () => {
+  const conn = { host: 'gerrit.example.com', port: 29418, user: 'a\u001b]0;pwned\u0007' };
+  const runner = fakeRunner([{
+    match: (f) => f === 'ssh',
+    result: {
+      code: 255,
+      stderr: 'a\u001b]0;pwned\u0007@gerrit.example.com: Permission denied (publickey).\n',
+    },
+  }]);
+  await assert.rejects(
+    () => sshQuery(conn, 'status:open', { runner }),
+    (err) => {
+      assert.equal(err.code, 'SSH_FAILED');
+      assert.match(err.message, /Permission denied/);
+      assert.equal(/[\u0000-\u001f\u007f]/.test(err.message), false, JSON.stringify(err.message));
+      assert.equal(/[\u0000-\u0009\u000b-\u001f\u007f]/.test(err.remedy), false, JSON.stringify(err.remedy));
+      return true;
+    },
+  );
+});
+
 test('a missing ssh binary is reported as such', async () => {
   const runner = /** @type {any} */ (async () => { throw new Error('spawn ssh ENOENT'); });
   await assert.rejects(() => sshQuery(CONN, 'status:open', { runner }), (err) => {
@@ -189,4 +230,33 @@ test('queryChanges drives the whole path from intent to typed models, offline', 
     [],
     ['Release-Gate', 'Widget-Approval'],
   ]);
+});
+
+test('a user or host that begins with "-" never reaches ssh, which would read it as an option', async () => {
+  for (const conn of [
+    { host: 'gerrit.example.com', port: 29418, user: '-oUser=eve' },
+    { host: '-oHostName=elsewhere', port: 29418, user: 'ada' },
+  ]) {
+    assert.throws(() => buildSshArgs(conn, 'status:open'), (err) => {
+      assert.ok(err instanceof TransportError);
+      assert.equal(err.code, 'UNSAFE_CONNECTION');
+      return true;
+    }, `buildSshArgs should have refused: ${JSON.stringify(conn)}`);
+
+    const runner = fakeRunner([{ match: (f) => f === 'ssh', result: { stdout: '' } }]);
+    await assert.rejects(() => sshQuery(conn, 'status:open', { runner }), (err) => {
+      assert.ok(err instanceof TransportError);
+      assert.equal(err.code, 'UNSAFE_CONNECTION');
+      return true;
+    }, `sshQuery should have refused: ${JSON.stringify(conn)}`);
+    assert.equal(runner.calls.length, 0, 'ssh must not be spawned at all');
+  }
+});
+
+test('the destination follows an explicit end-of-options marker', () => {
+  const args = buildSshArgs(CONN, 'status:open');
+  const marker = args.indexOf('--');
+  assert.notEqual(marker, -1, 'no -- in the ssh argv');
+  assert.equal(args[marker + 1], 'ada@gerrit.example.com');
+  assert.equal(args.slice(0, marker).includes('ada@gerrit.example.com'), false);
 });

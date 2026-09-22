@@ -98,6 +98,7 @@ export {
 
 export {
   DETAIL_QUERY_FLAGS,
+  assertSafeConnection,
   assertSafeQuery,
   buildSshArgs,
   parseQueryOutput,

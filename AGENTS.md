@@ -34,6 +34,10 @@ fails if any of them is broken, which is the intended way to find out.
   `DETAIL_QUERY_FLAGS` allowlist in `src/core/ssh.js` — a caller passes a key,
   never a flag string, so nothing caller-supplied reaches argv. Add a detail flag
   there rather than at a call site.
+- A resolved `user` or `host` never begins with `-`, because ssh would read it as
+  an option. `resolveConfig` enforces this through `assertSafeConnection` in
+  `src/core/ssh.js`, so a transport built on the resolved config inherits it; one
+  taking a connection from anywhere else must call it itself.
 - v0.1 is read-only. No mutating REST verb and no mutating `gerrit` SSH
   subcommand may appear in the codebase.
 - Prose is written for a stranger running their own server: never assert a fact

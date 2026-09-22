@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import assert from 'node:assert/strict';
+import os from 'node:os';
 import test from 'node:test';
 
 import {
@@ -10,7 +11,7 @@ import {
   readGitRemoteUrl,
 } from '../src/core/remote.js';
 import { resolveConfig } from '../src/core/config.js';
-import { ConfigError } from '../src/core/errors.js';
+import { ConfigError, TransportError } from '../src/core/errors.js';
 import { fakeRunner } from './helpers.js';
 
 const NO_CONFIG_FILE = async () => {
@@ -404,4 +405,89 @@ test('an out-of-range port is rejected', async () => {
     }),
     /invalid Gerrit SSH port/,
   );
+});
+
+test('a username that begins with "-" is refused whichever tier supplied it', async () => {
+  const hostile = '-oUser=eve';
+  for (const [source, overrides, deps] of [
+    ['override', { user: hostile }, {
+      remoteUrl: 'ssh://ada@gerrit.example.com:29418/acme/one', readFile: NO_CONFIG_FILE,
+    }],
+    ['git-remote', {}, {
+      remoteUrl: 'ssh://%2DoUser=eve@gerrit.example.com:29418/acme/one', readFile: NO_CONFIG_FILE,
+    }],
+    ['env', {}, {
+      env: { GERRIT_HOST: 'gerrit.example.com', GERRIT_USER: hostile }, readFile: NO_CONFIG_FILE,
+    }],
+    ['config-file', {}, {
+      readFile: async () => JSON.stringify({ host: 'gerrit.example.com', user: hostile }),
+    }],
+  ]) {
+    await assert.rejects(
+      () => resolveConfig(overrides, {
+        remoteUrl: null,
+        ...deps,
+        env: { XDG_CONFIG_HOME: '/nonexistent', ...deps.env },
+      }),
+      (err) => {
+        assert.ok(err instanceof TransportError, `${source}: must be a TransportError`);
+        assert.equal(err.code, 'UNSAFE_CONNECTION');
+        assert.match(err.message, /username/);
+        assert.match(err.message, new RegExp(source));
+        // The rejected value is someone else's text: it is named, never echoed.
+        assert.equal(err.message.includes(hostile), false, `${source}: message echoes the value`);
+        assert.equal(String(err.remedy).includes(hostile), false, `${source}: remedy echoes the value`);
+        return true;
+      },
+      `should have refused a username from ${source}`,
+    );
+  }
+});
+
+test('a local login name that begins with "-" is refused too', async (t) => {
+  t.mock.method(os, 'userInfo', () => ({ username: '-oUser=eve' }));
+  await assert.rejects(
+    () => resolveConfig({}, {
+      env: { XDG_CONFIG_HOME: '/nonexistent', GERRIT_HOST: 'gerrit.example.com' },
+      remoteUrl: null,
+      readFile: NO_CONFIG_FILE,
+    }),
+    (err) => {
+      assert.ok(err instanceof TransportError);
+      assert.equal(err.code, 'UNSAFE_CONNECTION');
+      assert.match(err.message, /username/);
+      assert.match(err.message, /derived/);
+      return true;
+    },
+  );
+});
+
+test('a host that begins with "-" is refused whichever tier supplied it', async () => {
+  const hostile = '-oHostName=elsewhere';
+  for (const [source, overrides, deps] of [
+    ['override', { host: hostile }, { readFile: NO_CONFIG_FILE }],
+    ['git-remote', {}, {
+      remoteUrl: 'ssh://ada@-oHostName=elsewhere:29418/acme/one', readFile: NO_CONFIG_FILE,
+    }],
+    ['env', {}, { env: { GERRIT_HOST: hostile }, readFile: NO_CONFIG_FILE }],
+    ['config-file', {}, { readFile: async () => JSON.stringify({ host: hostile }) }],
+  ]) {
+    await assert.rejects(
+      () => resolveConfig({ user: 'ada', ...overrides }, {
+        remoteUrl: null,
+        ...deps,
+        env: { XDG_CONFIG_HOME: '/nonexistent', ...deps.env },
+      }),
+      (err) => {
+        assert.ok(err instanceof TransportError, `${source}: must be a TransportError`);
+        assert.equal(err.code, 'UNSAFE_CONNECTION');
+        assert.match(err.message, /host/);
+        assert.match(err.message, new RegExp(source));
+        assert.equal(err.message.includes(hostile), false, `${source}: message echoes the value`);
+        assert.equal(String(err.remedy).includes(hostile), false, `${source}: remedy echoes the value`);
+        return true;
+      },
+      `should have refused a host from ${source}`,
+    );
+  }
 });
