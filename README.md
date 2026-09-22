@@ -630,7 +630,7 @@ reference. That is what lets the whole stack be driven from recorded fixtures.
 
 ### Transport
 
-Two channels, both necessary:
+Three channels, each necessary:
 
 - **SSH** — `ssh -p <port> -- <user>@<host> gerrit query --format=JSON
   --current-patch-set --all-approvals --submit-records ...` for change queries.
