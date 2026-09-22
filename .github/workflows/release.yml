@@ -1,0 +1,49 @@
+# Builds the installable tarball from the tagged commit and attaches it to a
+# GitHub Release for that tag. The test run only stops a broken tag becoming a
+# published artifact; review happens before merge.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload its asset
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: package.json
+          package-manager-cache: false
+
+      # `gerrit-axi --version` reports package.json's version, so a tag that
+      # disagrees with it would publish an artifact that misstates its own version.
+      - name: Check the tag matches package.json
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+
+      # No install step: the project has zero dependencies (see AGENTS.md). A
+      # change that adds one must add an install step back before `npm test`.
+      - run: npm test
+
+      - name: Pack
+        id: pack
+        run: echo "tarball=$(npm pack --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: gh release create "$GITHUB_REF_NAME" "$TARBALL" --verify-tag --generate-notes --title "$GITHUB_REF_NAME"

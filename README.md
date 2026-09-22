@@ -30,12 +30,19 @@ labels, and that is the point — see [Configuration](#configuration).
 
 Node 20 or newer. No runtime dependencies.
 
+Each version tag has a
+[GitHub Release](https://github.com/slnkjthien/gerrit-axi/releases) whose
+tarball CI builds from the tagged commit. Download one by version and install the
+file (npm 12 refuses a remote tarball URL by default, `allow-remote=none`):
+
 ```sh
-git clone <this repo> && cd gerrit-axi
-npm link          # or: npm install -g .
+curl -LO https://github.com/slnkjthien/gerrit-axi/releases/download/v<version>/gerrit-axi-<version>.tgz
+npm install -g ./gerrit-axi-<version>.tgz
+gerrit-axi --version    # prints: gerrit-axi <version>
 ```
 
 That installs both binaries: `gerrit` for a person, `gerrit-axi` for an agent.
+To work on the tool itself, run `npm link` in a clone instead.
 
 You also need:
 

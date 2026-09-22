@@ -9,6 +9,9 @@ the code.
 - Tests must stay offline. Core's HTTP client (`fetchImpl`), subprocess runner
   (`runner`), `env`, and `cwd` are all injectable parameters precisely so fixtures
   can drive the real code paths; add a fixture rather than a network call.
+- Releases are cut by pushing a `v<version>` tag that matches `package.json`;
+  `.github/workflows/release.yml` tests, packs and attaches the tarball to a
+  GitHub Release. The distributed artifact is always CI's, never a local `npm pack`.
 
 ## Invariants, and where they are enforced
 
