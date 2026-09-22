@@ -553,6 +553,9 @@ export async function publishChanges(session, {
     throw new TypeError(`unknown publication shape: ${shape}`);
   }
   if (branch !== null) checkRefName(branch, 'branch');
+  if (topic !== null && shape !== 'stack') {
+    throw new TypeError('a topic is set only on a stack publication');
+  }
   if (topic !== null) checkRefName(topic, 'topic');
   const url = pushUrl(session.config);
 

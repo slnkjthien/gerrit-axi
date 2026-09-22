@@ -18,7 +18,7 @@ server and refuses a change they do not support. Voting is what would get round
 them: a tool that can record an approval lets an agent manufacture one and then
 submit against it. So no path to a vote exists, and `npm test` fails if
 `gerrit review`, a REST call to the review endpoint, or a label option on a push
-appears anywhere in the code, or if a write other than those two does. The
+appears anywhere in the code. Those two are the only writes by design. The
 binding control is the label permissions your server grants the account an agent
 uses; this is defence in depth behind them.
 
@@ -178,7 +178,6 @@ gerrit-axi auth status                 whether the stored credential still works
 
 gerrit-axi publish --stack --topic <t> each commit on HEAD becomes its own change, under topic <t>
 gerrit-axi publish --squash            the commits on HEAD become one change
-    --topic <t>                        with --squash: also set the change's topic
     --branch <b>                       the branch to propose against (default: the server's default)
 
 gerrit-axi submit <change>             ask the server to submit one change
@@ -709,7 +708,7 @@ injectable, the real code paths run against them. Covered in particular:
   server's own words
 - the layering rules, the absence of any hostname literal, and that nothing can
   vote: no `gerrit review` in any spelling, no REST review or votes path, no label
-  option on a push, and no write beyond the one push and the one submit
+  option on a push, no `set-reviewers` or `set-topic`
 
 The one thing the suite cannot check on a machine without them is the
 `secret-tool` and `gpg` backends against a *real* keyring or GPG key; those are

@@ -373,10 +373,23 @@ test('a squash of one commit pushes that commit as it is', async () => {
   });
   const session = new Session({ config: CONFIG, runner, cwd: '/work' });
 
-  await publishChanges(session, { shape: 'squash', topic: 'solo' });
+  await publishChanges(session, { shape: 'squash' });
 
   assert.equal(gitCalls(runner, 'commit-tree').length, 0);
-  assert.equal(gitCalls(runner, 'push')[0].args.at(-1), `${c1}:refs/for/main%topic=solo`);
+  assert.equal(gitCalls(runner, 'push')[0].args.at(-1), `${c1}:refs/for/main`);
+});
+
+test('a squash with a topic is refused before anything is pushed', async () => {
+  const c1 = 'a'.repeat(40);
+  const runner = fakeRepo({
+    head: c1,
+    log: logRecord({ sha: c1, parent: BASE, message: `Only\n\nChange-Id: I${'1'.repeat(40)}\n` }),
+  });
+  const session = new Session({ config: CONFIG, runner, cwd: '/work' });
+
+  await assert.rejects(publishChanges(session, { shape: 'squash', topic: 'solo' }), TypeError);
+
+  assert.equal(runner.calls.length, 0);
 });
 
 test('a push the server answers with "no new changes" is a publish that is already done', async () => {

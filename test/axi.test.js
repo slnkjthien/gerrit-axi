@@ -317,6 +317,7 @@ test('a failure is a typed record on stderr, never prose on stdout', async () =>
     { argv: ['publish', '--stack', '--squash', '--topic', 't'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['publish', '--stack'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['publish', '--squash', 'HEAD'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['publish', '--squash', '--topic', 't'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['submit'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['submit', '200101', '200102'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['submit', 'HEAD'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },

@@ -52,7 +52,6 @@ commands, and the options each one takes:
   publish --stack --topic <t> every commit on HEAD since it left the server's
                               branch becomes its own change, under topic <t>
   publish --squash            those commits become one change
-      --topic <t>             with --squash: also set the change's topic
       --branch <b>            the branch to propose against (default: the
                               server's default branch)
   submit <change>             ask the server to submit one change; a refusal is

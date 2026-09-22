@@ -215,6 +215,7 @@ export async function opPublish({ session, args }) {
   // A stack is addressed as a unit through its topic; without one it is only a
   // chain of changes that happen to depend on each other.
   if (stack && topic === null) throw new UsageError('publish --stack needs --topic <name>');
+  if (squash && topic !== null) throw new UsageError('publish --squash takes no --topic; a topic names a stack');
   const branch = typeof flags['--branch'] === 'string' ? flags['--branch'] : null;
 
   const publication = await publishChanges(session, {
