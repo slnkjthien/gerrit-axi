@@ -34,7 +34,8 @@ jobs:
             exit 1
           fi
 
-      - run: npm install --no-audit --no-fund
+      # No install step: the project has zero dependencies (see AGENTS.md). A
+      # change that adds one must add an install step back before `npm test`.
       - run: npm test
 
       - name: Pack
