@@ -32,10 +32,12 @@ Node 20 or newer. No runtime dependencies.
 
 Each version tag has a
 [GitHub Release](https://github.com/slnkjthien/gerrit-axi/releases) whose
-tarball CI builds from the tagged commit. Install one by version:
+tarball CI builds from the tagged commit. Download one by version and install the
+file (npm 12 refuses a remote tarball URL by default, `allow-remote=none`):
 
 ```sh
-npm install -g https://github.com/slnkjthien/gerrit-axi/releases/download/v<version>/gerrit-axi-<version>.tgz
+curl -LO https://github.com/slnkjthien/gerrit-axi/releases/download/v<version>/gerrit-axi-<version>.tgz
+npm install -g ./gerrit-axi-<version>.tgz
 gerrit-axi --version    # prints: gerrit-axi <version>
 ```
 
