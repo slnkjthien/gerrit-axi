@@ -46,8 +46,11 @@ fails if any of them is broken, which is the intended way to find out.
   `gerrit-axi submit` (the one POST, in `restSubmit` in `src/core/rest.js`); the
   human `gerrit` stays read-only. `gerrit review` in any spelling, a REST
   `/review` or `/votes` path, `set-reviewers`, `set-topic`, and a label option on
-  a push may not appear in the code; the layering test fails if one does. Those
-  two are the only writes by design: add no other.
+  a push may not appear in the code; the layering test fails if one does. That
+  check reads source text on purpose, an exception to asserting behaviour: a
+  security invariant needs a whole-source claim. `test/vote-ban.test.js` is its
+  runtime complement; keep both. Those two are the only writes by design: add no
+  other.
 - `publish` never regenerates a Change-Id: a new one creates a different change
   and orphans the original's review. An existing one is pushed verbatim; a
   missing one is stamped and written back into the local branch (messages only)

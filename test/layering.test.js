@@ -210,12 +210,19 @@ test('voting is structurally impossible: no voting command or voting path exists
   // So this is a ban, not a review note: a later change that adds a way to vote
   // fails here, whatever it was meant for. It is a universal claim -- no path
   // anywhere names a voting command -- which only a scan of the whole codebase
-  // can state. What publish and submit actually send is covered behaviourally in
-  // test/publish.test.js, test/rest.test.js and test/axi.test.js.
+  // can state, so it reads source text on purpose.
+  //
+  // test/vote-ban.test.js is its runtime complement, not a duplicate: it drives
+  // every agent-tier operation and checks what actually leaves the process,
+  // which catches a value assembled at runtime that no grep can see, but only on
+  // the paths it drives. This test covers the whole source, which no test that
+  // runs code can. Each catches failures the other misses; delete neither.
   const WHY = 'gerrit-axi must be structurally unable to vote: a tool that can record an '
     + 'approval lets an agent manufacture one and submit against it, and the vote reads '
     + 'as a person having approved. No voting command or voting path may appear anywhere '
-    + 'in the code; publish and submit behaviour is tested in publish, rest and axi tests.';
+    + 'in the code. This source scan and the runtime check in test/vote-ban.test.js catch '
+    + 'different failures -- this one covers the whole source, that one sees values '
+    + 'assembled at runtime -- and neither is redundant.';
   const files = [
     ...jsFilesUnder(SRC_DIR),
     path.join(REPO_ROOT, 'bin', 'gerrit.js'),
