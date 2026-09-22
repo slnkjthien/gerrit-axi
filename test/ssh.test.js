@@ -150,21 +150,42 @@ test('a non-zero ssh exit becomes an actionable transport error', async () => {
   );
 });
 
-test('an ssh failure never echoes the resolved user or host', async () => {
+test('an ssh failure never puts the resolved user or host in the suggested command', async () => {
   const conn = { host: 'gerrit.example.com', port: 29418, user: 'a$(touch pwned)' };
+  const stderr = 'a$(touch pwned)@gerrit.example.com: Permission denied (publickey).';
   const runner = fakeRunner([{
     match: (f) => f === 'ssh',
-    result: { code: 255, stderr: 'Permission denied (publickey).\n' },
+    result: { code: 255, stderr: `${stderr}\n` },
   }]);
   await assert.rejects(
     () => sshQuery(conn, 'status:open', { runner }),
     (err) => {
       assert.equal(err.code, 'SSH_FAILED');
-      for (const text of [err.message, err.remedy]) {
-        assert.equal(text.includes('$(touch pwned)'), false, text);
-        assert.equal(text.includes('gerrit.example.com'), false, text);
-      }
+      assert.equal(err.message, `ssh to Gerrit failed: ${JSON.stringify(stderr)}`);
+      assert.equal(err.remedy.includes('$(touch pwned)'), false, err.remedy);
+      assert.equal(err.remedy.includes('gerrit.example.com'), false, err.remedy);
       assert.match(err.remedy, /ssh -p 29418 -- <user>@<host> gerrit version/);
+      return true;
+    },
+  );
+});
+
+test('an ssh failure never passes a raw control character through to the terminal', async () => {
+  const conn = { host: 'gerrit.example.com', port: 29418, user: 'a\u001b]0;pwned\u0007' };
+  const runner = fakeRunner([{
+    match: (f) => f === 'ssh',
+    result: {
+      code: 255,
+      stderr: 'a\u001b]0;pwned\u0007@gerrit.example.com: Permission denied (publickey).\n',
+    },
+  }]);
+  await assert.rejects(
+    () => sshQuery(conn, 'status:open', { runner }),
+    (err) => {
+      assert.equal(err.code, 'SSH_FAILED');
+      assert.match(err.message, /Permission denied/);
+      assert.equal(/[\u0000-\u001f\u007f]/.test(err.message), false, JSON.stringify(err.message));
+      assert.equal(/[\u0000-\u0009\u000b-\u001f\u007f]/.test(err.remedy), false, JSON.stringify(err.remedy));
       return true;
     },
   );

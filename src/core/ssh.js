@@ -231,8 +231,9 @@ export async function sshQuery(
     });
   }
   if (result.code !== 0) {
+    const reason = firstLine(result.stderr);
     throw new TransportError(
-      `ssh to Gerrit failed: ${firstLine(result.stderr) || `exit ${result.code}`}`,
+      `ssh to Gerrit failed: ${reason ? JSON.stringify(reason) : `exit ${result.code}`}`,
       {
         code: 'SSH_FAILED',
         remedy: [
