@@ -10,6 +10,7 @@ import {
   basicAuthHeader,
   parseGerritJson,
   restGetJson,
+  restSubmit,
   stripXssiPrefix,
   verifyToken,
 } from '../src/core/rest.js';
@@ -170,4 +171,41 @@ test('no error message ever contains the token', async () => {
       },
     );
   }
+});
+
+test('submit is one authenticated POST to the change\'s submit endpoint, never following a redirect', async () => {
+  const fetchImpl = fakeFetch([{
+    path: '/a/changes/200101/submit',
+    body: ")]}'\n{\"_number\":200101,\"change_id\":\"I1111111111111111111111111111111111111111\",\"status\":\"MERGED\"}",
+  }]);
+  const info = await restSubmit({ ...target, fetchImpl }, 200101);
+  assert.equal(info.status, 'MERGED');
+  assert.equal(fetchImpl.calls.length, 1);
+  assert.equal(fetchImpl.calls[0].url, 'https://gerrit.example.com/a/changes/200101/submit');
+  assert.equal(fetchImpl.calls[0].method, 'POST');
+  assert.equal(fetchImpl.calls[0].body, '{}');
+  assert.equal(fetchImpl.calls[0].redirect, 'manual');
+  assert.match(fetchImpl.calls[0].headers.Authorization, /^Basic /);
+});
+
+test('a submit the server refuses comes back in the server\'s own words', async () => {
+  const refusal = 'Failed to submit 1 change due to the following problems:\n'
+    + "Change 200102: submit requirement 'Quokka-Review' is unsatisfied";
+  const cases = [
+    { status: 409, body: refusal, code: 'SUBMIT_REFUSED', said: refusal },
+    { status: 403, body: 'submit not permitted\n', code: 'FORBIDDEN', said: 'submit not permitted' },
+  ];
+  for (const { status, body, code, said } of cases) {
+    const fetchImpl = fakeFetch([{ path: '/a/changes/200102/submit', status, body }]);
+    await assert.rejects(restSubmit({ ...target, fetchImpl }, 200102), (err) => {
+      assert.ok(err instanceof TransportError);
+      assert.equal(err.code, code);
+      assert.equal(err.message, `Gerrit refused to submit change 200102: ${said}`);
+      assert.equal(err.message.includes(PLACEHOLDER_TOKEN), false);
+      return true;
+    });
+  }
+
+  const fetchImpl = fakeFetch([{ path: '/a/changes/200102/submit', status: 401, body: 'Unauthorized' }]);
+  await assert.rejects(restSubmit({ ...target, fetchImpl }, 200102), AuthError);
 });

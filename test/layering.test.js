@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Guards on the two architectural rules. These are the tests that fail if a later
- * change quietly dissolves the layering, which is the failure mode worth catching
- * mechanically rather than in review.
+ * Guards on the two architectural rules, and on the vote ban. These are the tests
+ * that fail if a later change quietly dissolves the layering or opens a path to a
+ * vote, which is the failure mode worth catching mechanically rather than in
+ * review.
  */
 
 import assert from 'node:assert/strict';
@@ -184,6 +185,8 @@ test('the core entry point exposes the library API a second binary would import'
     'authStatus',
     'loginWithToken',
     'logout',
+    'publishChanges',
+    'submitChange',
     'GerritError',
   ]) {
     assert.equal(typeof core[name] !== 'undefined', true, `core must export ${name}`);
@@ -194,20 +197,92 @@ test('the core entry point exposes the library API a second binary would import'
   }
 });
 
-test('v0.1 is read-only: no mutating Gerrit call appears in the codebase', () => {
-  const files = [...jsFilesUnder(SRC_DIR), path.join(REPO_ROOT, 'bin', 'gerrit.js')];
-  const mutations = [
-    /\bmethod:\s*['"](?:POST|PUT|DELETE|PATCH)['"]/i,
-    /gerrit\s+review\b/,
-    /gerrit\s+set-reviewers\b/,
-    /gerrit\s+set-topic\b/,
-    /\bgit\s+push\b/,
+/**
+ * The source of one top-level function, from its declaration to the closing brace
+ * in column zero. Enough to ask "is this literal inside that function".
+ *
+ * @param {string} code
+ * @param {string} name
+ * @returns {string}
+ */
+function functionSource(code, name) {
+  const start = code.search(new RegExp(`\\bfunction ${name}\\(`));
+  if (start === -1) return '';
+  const end = code.indexOf('\n}\n', start);
+  return code.slice(start, end === -1 ? undefined : end + 2);
+}
+
+test('voting is structurally impossible: no vote path exists, and the only writes are publish and submit', () => {
+  // THE PROPERTY THIS TEST HOLDS. gerrit-axi publishes and submits, and it cannot
+  // vote. Submitting cannot get round the votes: the server evaluates its own
+  // submit rules and refuses a change they do not support. Voting is what would
+  // get round them. A tool that can record an approval lets an agent manufacture
+  // one and then submit legitimately against it, and that vote reads -- to
+  // colleagues and to any audit of the repository -- as a named person having
+  // approved. The durable control is the account's label permissions on the
+  // server; this test keeps the tool's own path from ever being what tests them.
+  //
+  // So this is a ban, not a review note: a later change that adds a way to vote
+  // fails here, whatever it was meant for.
+  const WHY = 'gerrit-axi must be structurally unable to vote: a tool that can record an '
+    + 'approval lets an agent manufacture one and submit against it, and the vote reads '
+    + 'as a person having approved.';
+  const files = [
+    ...jsFilesUnder(SRC_DIR),
+    path.join(REPO_ROOT, 'bin', 'gerrit.js'),
+    path.join(REPO_ROOT, 'bin', 'gerrit-axi.js'),
   ];
-  for (const file of files) {
-    const code = stripComments(readFileSync(file, 'utf8'));
-    for (const pattern of mutations) {
-      assert.equal(pattern.test(code), false,
-        `${path.relative(REPO_ROOT, file)} looks like it mutates Gerrit: ${pattern}`);
+  const code = new Map(files.map((file) => [file, stripComments(readFileSync(file, 'utf8'))]));
+  const rel = (/** @type {string} */ file) => path.relative(REPO_ROOT, file);
+
+  // 1. No voting vocabulary, in any spelling a caller could reach.
+  const votingPaths = [
+    [/\bgerrit\b[\s'"`,]*\breview\b/, 'the gerrit review SSH command, as a string or as argv'],
+    [/['"`]review['"`\s]/, 'review as an argv element'],
+    [/--(?:code-review|verified)\b|--label[\s'"`,=]+['"`]?(?:\$\{|[A-Za-z0-9-]+=)/,
+      'a gerrit review scoring flag (--label NAME=VALUE; secret-tool\'s --label=<text> is not one)'],
+    [/\/review/, 'a REST path to the review endpoint, where votes are recorded'],
+    [/\/votes\b/, 'a REST path to the votes endpoint, where votes are deleted'],
+    [/[%,](?:l|label)=/, 'a label option on a push, which votes as the push lands'],
+    [/set-reviewers/, 'gerrit set-reviewers'],
+    [/set-topic/, 'gerrit set-topic (a topic is set on the push instead)'],
+  ];
+  for (const [file, text] of code) {
+    for (const [pattern, what] of votingPaths) {
+      assert.equal(/** @type {RegExp} */ (pattern).test(text), false,
+        `${rel(file)} contains ${what} (${pattern}). ${WHY}`);
     }
   }
+
+  // 2. Every HTTP method is a literal, so the whole set can be read off the
+  // source: GET, and one POST -- the submit.
+  const posts = [];
+  for (const [file, text] of code) {
+    assert.equal(/\bmethod\s*:(?!\s*['"])|\bmethod\s*[,}]/.test(text), false,
+      `${rel(file)} passes an HTTP method that is not a literal; the write surface must stay enumerable`);
+    assert.equal(/['"`](?:PUT|PATCH|DELETE)['"`]/i.test(text), false,
+      `${rel(file)} names a REST write other than submit. ${WHY}`);
+    for (const match of text.matchAll(/['"`]POST['"`]/gi)) posts.push([file, match.index]);
+  }
+  const restFile = path.join(SRC_DIR, 'core', 'rest.js');
+  const restSubmit = functionSource(code.get(restFile) ?? '', 'restSubmit');
+  assert.equal(posts.length, 1, `exactly one POST may exist, the submit; found ${posts.length}`);
+  assert.equal(posts[0][0], restFile, 'the one POST lives in the REST client');
+  assert.match(restSubmit, /['"]POST['"]/, 'the one POST is restSubmit\'s');
+  assert.match(restSubmit, /\/submit`/, 'restSubmit posts to the submit endpoint and nowhere else');
+
+  // 3. Exactly one push, built in one place, and only ever to refs/for/.
+  const publishFile = path.join(SRC_DIR, 'core', 'publish.js');
+  const buildPushArgs = functionSource(code.get(publishFile) ?? '', 'buildPushArgs');
+  for (const [file, text] of code) {
+    const outside = file === publishFile ? text.replace(buildPushArgs, '') : text;
+    assert.equal(/\bgit\s+push\b/.test(text), false,
+      `${rel(file)} spells out a git push; the only push is the argv buildPushArgs returns`);
+    assert.equal(/['"`]push['"`]/.test(outside), false,
+      `${rel(file)} builds a git push outside buildPushArgs`);
+    assert.equal(/refs\/for\//.test(outside), false,
+      `${rel(file)} names refs/for/ outside buildPushArgs`);
+  }
+  assert.match(buildPushArgs, /['"]push['"]/, 'buildPushArgs builds the push');
+  assert.match(buildPushArgs, /:refs\/for\/\$\{branch\}/, 'and pushes to refs/for/<branch> only');
 });

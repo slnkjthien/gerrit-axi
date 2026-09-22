@@ -2,7 +2,8 @@
 
 /**
  * A Session bundles resolved configuration with the injectable edges of the
- * process -- the subprocess runner and the HTTP client.
+ * process -- the subprocess runner, the HTTP client, and the working directory
+ * whose repository a publish reads.
  *
  * It is the entry point of the library API. The agent tier in src/axi/ constructs
  * a Session and calls the same functions the CLI calls; it does not spawn
@@ -21,12 +22,14 @@ import { runCommand } from './exec.js';
 export class Session {
   /**
    * @param {{config: ResolvedConfig, env?: NodeJS.ProcessEnv,
-   *          runner?: import('./exec.js').Runner, fetchImpl?: typeof fetch}} deps
+   *          runner?: import('./exec.js').Runner, fetchImpl?: typeof fetch,
+   *          cwd?: string}} deps
    */
-  constructor({ config, env = process.env, runner = runCommand, fetchImpl }) {
+  constructor({ config, env = process.env, runner = runCommand, fetchImpl, cwd = process.cwd() }) {
     /** @type {ResolvedConfig} */
     this.config = config;
     this.env = env;
+    this.cwd = cwd;
     this.runner = runner;
     this.fetchImpl = fetchImpl ?? globalThis.fetch;
     /** @type {Promise<{token: string, backend: string, location: string|null}>|null} */
@@ -109,5 +112,5 @@ export class Session {
 export async function createSession(opts = {}) {
   const { overrides = {}, cwd, env = process.env, runner = runCommand, fetchImpl, remoteUrl } = opts;
   const config = await resolveConfig(overrides, { cwd, env, runner, remoteUrl });
-  return new Session({ config, env, runner, fetchImpl });
+  return new Session({ config, env, runner, fetchImpl, cwd });
 }

@@ -1,18 +1,26 @@
 # gerrit-axi
 
-A read-only Gerrit CLI. It answers the questions a reviewer actually asks —
-*whose turn is it*, *what is blocking this change*, and *where does this one
-change stand* — and prints the review comments, inline and cover, including the
-machine-generated ones.
+A Gerrit CLI. It answers the questions a reviewer actually asks — *whose turn is
+it*, *what is blocking this change*, and *where does this one change stand* — and
+prints the review comments, inline and cover, including the machine-generated
+ones. For an agent, it also publishes changes and submits them.
 
 Two binaries over one library: `gerrit` renders for a person, `gerrit-axi` emits
 records for an agent. They are siblings, not wrappers — see
 [The agent tier](#the-agent-tier).
 
-**v0.1 is read-only.** It never votes, replies, sets reviewers or topics, submits,
-abandons, or pushes. Every operation is a query. The test suite enforces this: a
-grep for mutating REST verbs and mutating `gerrit` SSH subcommands runs as part of
-`npm test`.
+**It cannot vote.** `gerrit`, for a person, is read-only: every operation is a
+query. `gerrit-axi`, for an agent, adds exactly two writes — `publish`, one push to
+`refs/for/<branch>`, and `submit`, one REST call the server may refuse — and
+nothing else: it never votes, replies, sets reviewers, or abandons. Submitting
+cannot get round the votes, because Gerrit evaluates its submit rules on the
+server and refuses a change they do not support. Voting is what would get round
+them: a tool that can record an approval lets an agent manufacture one and then
+submit against it. So no path to a vote exists, and `npm test` fails if
+`gerrit review`, a REST call to the review endpoint, or a label option on a push
+appears anywhere in the code, or if a write other than those two does. The
+binding control is the label permissions your server grants the account an agent
+uses; this is defence in depth behind them.
 
 ```console
 $ gerrit status
@@ -49,7 +57,8 @@ You also need:
 - an **OpenSSH client**, and an SSH key registered with your Gerrit
   (`ssh -p 29418 <you>@<host> gerrit version` should work), and
 - a **Gerrit authentication token** for the REST calls — see
-  [Authentication](#authentication).
+  [Authentication](#authentication), and
+- **git**, for `gerrit-axi publish`.
 
 ## Commands
 
@@ -166,6 +175,13 @@ gerrit-axi comments <change>...        inline review comments on every change na
     --bots | --humans                  only / never machine-generated
 
 gerrit-axi auth status                 whether the stored credential still works
+
+gerrit-axi publish --stack --topic <t> each commit on HEAD becomes its own change, under topic <t>
+gerrit-axi publish --squash            the commits on HEAD become one change
+    --topic <t>                        with --squash: also set the change's topic
+    --branch <b>                       the branch to propose against (default: the server's default)
+
+gerrit-axi submit <change>             ask the server to submit one change
 ```
 
 Global options: `--json`, `--host`, `--user`, `--port`, `--project`,
@@ -257,6 +273,77 @@ first time it posts — see [Tier 1](#tier-1--derived-from-the-server). `severit
 is `null` unless [tier-3 patterns](#tier-3--genuinely-local-convention) are
 configured. `gerrit-axi show --comments` adds this same table to a `show`, so one
 invocation can answer a whole watch.
+
+### Publishing and submitting
+
+`publish` turns the commits on HEAD — everything since it left the server's
+branch — into changes, with one push to `refs/for/<branch>`. The shape is named
+on every call, never guessed:
+
+- `--stack --topic <name>` makes each commit its own change, parent chain intact,
+  all under the topic. The push sets the topic; nothing else does.
+- `--squash` makes them one change: HEAD's tree on top of the base, carrying the
+  oldest commit's message. The same branch always squashes to the same commit, so
+  publishing it again changes nothing, and the server says "no new changes".
+
+The branch defaults to the one the server's HEAD names; `--branch` picks another.
+The base is read off the server rather than a remote-tracking ref, so a stale
+fetch cannot make merged commits look new. The server's tip must already be in
+the local repository, though; `git fetch` first if it is not.
+
+**A Change-Id is the change's identity, and it is never regenerated.** Pushing the
+same Change-Id again adds a patch set to the same change; a different one creates
+a different change and orphans the first one's review. So every Change-Id a
+commit already carries is pushed verbatim. A commit that needs one and has none —
+every commit of a stack, or the oldest commit of a squash — gets one stamped into
+its message, and the local branch is rewritten to keep it, since an id that
+existed only in the push would be a different one next time. The rewrite changes
+messages only, never a tree, so the working tree and index are untouched, and
+`rewritten_from` records where HEAD was.
+
+```console
+$ gerrit-axi publish --stack --topic stack-of-three
+ok: true
+op: publish
+shape: stack
+branch: main
+topic: stack-of-three
+base: e3b1f0c2a9d84c5b7f6e1a2d3c4b5a6978695a4b
+commit: cccccccccccccccccccccccccccccccccccccccc
+new_patch_sets: true
+head: cccccccccccccccccccccccccccccccccccccccc
+rewritten_from: null
+count: 3
+published[3]{commit,change_id,stamped,subject,change,patch_set,current}:
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,false,Split the queue reader out of the daemon,200101,4,true
+  bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,Ibbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,false,Give the queue reader its own retry ceiling,200102,2,true
+  cccccccccccccccccccccccccccccccccccccccc,Icccccccccccccccccccccccccccccccccccccccc,false,Wire the retry ceiling to the managed configuration,200103,1,true
+```
+
+After `published` comes the same `changes` table `show` emits, read back from the
+server after the push. `current` is whether the commit just pushed is now that
+change's current patch set, and `stamped` whether this publish had to give it its
+Change-Id.
+
+`submit <change>` asks the server to submit one change. Whether it may is the
+server's decision alone, so nothing is checked first, and a refusal comes back in
+the server's own words as an error record:
+
+```console
+$ gerrit-axi submit 200102; echo "exit=$?"
+ok: false
+op: submit
+error: "Gerrit refused to submit change 200102: Failed to submit 1 change due to the following problems:\nChange 200102: submit requirement 'Zebu-Herding' is unsatisfied"
+code: SUBMIT_REFUSED
+kind: transport
+exit=5
+```
+
+On success the record carries the change's `status` as the server reports it,
+normally `MERGED`. It takes one change per call because the server already
+decides what goes in with it — the changes it depends on, or the rest of its
+topic where the server submits topics whole — and submits those together or not
+at all.
 
 ### Failures
 
@@ -561,8 +648,16 @@ Two channels, both necessary:
   string can become an element of the argv — and so a hundred-row list view never
   pays for a hundred message timelines.
 - **REST** — `https://<host>/a/...` with Basic auth, for inline comments, which
-  SSH cannot reach. Gerrit prefixes every REST JSON body with the XSSI guard line
-  `)]}'`, which is stripped before parsing.
+  SSH cannot reach, and for the one write REST makes: `POST
+  /a/changes/<n>/submit`. Every other request is a GET. Gerrit prefixes every REST
+  JSON body with the XSSI guard line `)]}'`, which is stripped before parsing.
+- **git over SSH** — `gerrit-axi publish` asks the same SSH endpoint for the
+  branch tip with `git ls-remote`, then makes one `git push` of one refspec,
+  `<commit>:refs/for/<branch>`, with an optional `%topic=`. The push is built in
+  one function, `buildPushArgs` in `src/core/publish.js`, which has no parameter
+  for any other push option. Branch and topic names are screened for the
+  characters that would smuggle one in, and a configured `push.pushOption` is
+  cleared, so the server receives only what was built.
 
 HTTP 401, 403 and 404 are kept distinct: 401 means the credential is bad or
 expired and is the only one that tells you to re-run `auth login`; 403 means you
@@ -604,8 +699,17 @@ injectable, the real code paths run against them. Covered in particular:
   with stdout empty
 - the TOON encoder's quoting and escaping, so a consumer can always tell a string
   from a number, a null, or a delimiter
-- the layering rules, the absence of any hostname literal, and that v0.1 mutates
-  nothing
+- publication against a scripted repository: existing Change-Ids carried byte for
+  byte, missing ones stamped and written back through the branch with trees,
+  identities and dates unchanged, the squash built from HEAD's tree on the base,
+  the push argv pinned exactly, a branch or topic that would smuggle a push option
+  refused, a server rejection reported verbatim, and "no new changes" treated as
+  already published
+- submit as one POST with no query before it, and a refusal carried in the
+  server's own words
+- the layering rules, the absence of any hostname literal, and that nothing can
+  vote: no `gerrit review` in any spelling, no REST review or votes path, no label
+  option on a push, and no write beyond the one push and the one submit
 
 The one thing the suite cannot check on a machine without them is the
 `secret-tool` and `gpg` backends against a *real* keyring or GPG key; those are

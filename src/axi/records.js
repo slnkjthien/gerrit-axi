@@ -170,3 +170,25 @@ export function commentRows(change, comments) {
     message: comment.message,
   }));
 }
+
+/**
+ * One row per change a publish sent, oldest first: the commit pushed, the
+ * Change-Id that makes it that change, whether this publish had to stamp the
+ * Change-Id, and what the server holds for it now. `current` is whether the
+ * commit pushed is the change's current patch set on the server; null means the
+ * server returned no change to compare against.
+ *
+ * @param {import('../core/publish.js').Published} entry
+ * @returns {Record<string, string|number|boolean|null>}
+ */
+export function publishedRow(entry) {
+  return {
+    commit: entry.commit,
+    change_id: entry.changeId,
+    stamped: entry.stamped,
+    subject: entry.subject,
+    change: entry.change?.number ?? null,
+    patch_set: entry.change?.currentPatchSet?.number ?? null,
+    current: entry.isCurrentPatchSet,
+  };
+}

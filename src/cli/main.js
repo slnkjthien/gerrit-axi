@@ -62,7 +62,7 @@ Host, port, user and project are resolved from the 'origin' git remote of the
 current directory first, then from GERRIT_HOST / GERRIT_USER / GERRIT_PORT, then
 from the config file. There is no built-in default host.
 
-v0.1 is read-only: it never votes, comments, pushes, or otherwise mutates Gerrit.`;
+gerrit is read-only: it never votes, comments, pushes, or otherwise mutates Gerrit.`;
 
 /**
  * @param {string[]} argv          argv without node and script

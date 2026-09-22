@@ -246,7 +246,7 @@ test('help and version work with no config, no repo and no network', async () =>
   }
 });
 
-test('the help text states that v0.1 is read-only', async () => {
+test('the help text states that gerrit is read-only', async () => {
   const stdout = captureStream();
   await main(['--help'], {
     cwd: '/tmp',

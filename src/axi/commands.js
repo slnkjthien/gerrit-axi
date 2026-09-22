@@ -4,15 +4,20 @@
  * The tier's operations. Each one builds a document out of core models and hands
  * it back; main.js serialises it.
  *
- * Every operation that names changes takes a list of them and answers about all
- * of them in one call. That is the requirement this tier was built for: a watch
+ * Every read that names changes takes a list of them and answers about all of
+ * them in one call. That is the requirement this tier was built for: a watch
  * following a nine-change stack must not need nine invocations, and `gerrit
  * query` answers about a whole list in one round trip anyway.
+ *
+ * The two writes are `publish` and `submit`, and there is no third: nothing here
+ * records a vote, comments, or sets reviewers.
  */
 
 import { authStatus } from '../core/auth.js';
 import { queryChanges, sortByLastUpdatedDesc } from '../core/changes.js';
 import { listComments } from '../core/comments.js';
+import { publishChanges } from '../core/publish.js';
+import { submitChange } from '../core/submit.js';
 import { changeNumbers, messageCount, positiveInt } from './args.js';
 import {
   changeRow,
@@ -20,6 +25,7 @@ import {
   dependencyRows,
   labelRows,
   messageRows,
+  publishedRow,
   voteRows,
 } from './records.js';
 import { UsageError } from './output.js';
@@ -184,5 +190,85 @@ export async function opAuth({ session, args }) {
     problem: status.problem?.code ?? null,
     host: session.config.host,
     user: session.config.user,
+  };
+}
+
+/**
+ * `publish` -- the commits on HEAD, proposed to a branch as changes: one change
+ * per commit under a topic with `--stack`, or one change for all of them with
+ * `--squash`. The shape is the caller's to name, never guessed; a single commit
+ * publishes identically either way, but a caller that meant one and got the
+ * other would have created changes it has to abandon.
+ *
+ * @param {Ctx} ctx
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function opPublish({ session, args }) {
+  const { positional, flags } = args;
+  if (positional.length > 0) {
+    throw new UsageError(`publish takes no arguments; it publishes HEAD (got: ${positional.join(' ')})`);
+  }
+  const stack = flags['--stack'] === true;
+  const squash = flags['--squash'] === true;
+  if (stack === squash) throw new UsageError('publish needs exactly one of --stack or --squash');
+  const topic = typeof flags['--topic'] === 'string' ? flags['--topic'] : null;
+  // A stack is addressed as a unit through its topic; without one it is only a
+  // chain of changes that happen to depend on each other.
+  if (stack && topic === null) throw new UsageError('publish --stack needs --topic <name>');
+  const branch = typeof flags['--branch'] === 'string' ? flags['--branch'] : null;
+
+  const publication = await publishChanges(session, {
+    shape: stack ? 'stack' : 'squash',
+    branch,
+    topic,
+  });
+  const changes = publication.published
+    .map((entry) => entry.change)
+    .filter((change) => change !== null);
+  return {
+    ok: true,
+    op: 'publish',
+    shape: publication.shape,
+    branch: publication.branch,
+    topic: publication.topic,
+    base: publication.base,
+    commit: publication.commit,
+    new_patch_sets: publication.newPatchSets,
+    head: publication.head,
+    rewritten_from: publication.rewrittenFrom,
+    count: publication.published.length,
+    published: publication.published.map(publishedRow),
+    changes: changes.map(changeRow),
+  };
+}
+
+/**
+ * `submit` -- ask the server to submit one change. One, because the server
+ * already decides what must go in with it -- the changes it depends on, or the
+ * rest of its topic -- and submits those together or not at all; a list here
+ * would only invent an order between separate transactions.
+ *
+ * Nothing is checked first. A refusal is the server's, in its own words, and
+ * arrives as an error record with code SUBMIT_REFUSED.
+ *
+ * @param {Ctx} ctx
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function opSubmit({ session, args }) {
+  const numbers = changeNumbers(args.positional);
+  if (numbers.length !== 1) {
+    throw new UsageError('submit takes exactly one change; the server submits what must go with it');
+  }
+  const submitted = await submitChange(session, numbers[0]);
+  return {
+    ok: true,
+    op: 'submit',
+    change: submitted.number,
+    status: submitted.status,
+    change_id: submitted.changeId,
+    project: submitted.project,
+    branch: submitted.branch,
+    topic: submitted.topic,
+    subject: submitted.subject,
   };
 }
