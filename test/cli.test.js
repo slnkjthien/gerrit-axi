@@ -337,3 +337,28 @@ test('the table aligns columns and truncates on request', () => {
   assert.equal(truncate('abcdef', 3), 'ab…');
   assert.equal(truncate('abc', 10), 'abc');
 });
+
+test('gerrit status refuses an origin remote whose username ssh would read as an option', async () => {
+  const stdout = captureStream();
+  const stderr = captureStream();
+  const runner = fakeRunner([
+    {
+      match: (f, a) => f === 'git' && a.includes('remote'),
+      result: { stdout: 'ssh://%2DoUser=eve@gerrit.example.com:29418/acme/one\n' },
+    },
+    { match: (f) => f === 'ssh', result: { stdout: fixture('query-output.txt') } },
+  ]);
+  const code = await main(['status'], {
+    cwd: '/some/checkout',
+    env: ENV,
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+    stdin: /** @type {any} */ ({ isTTY: false }),
+    runner,
+  });
+
+  assert.equal(code, EXIT.transport);
+  assert.equal(runner.calls.filter((c) => c.file === 'ssh').length, 0);
+  assert.match(stderr.text, /username/);
+  assert.equal(stderr.text.includes('oUser=eve'), false, 'the rejected value is echoed');
+});

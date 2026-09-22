@@ -52,6 +52,38 @@ export function assertSafeQuery(query) {
 }
 
 /**
+ * ssh reads any argv element that begins with `-` as an option, and some of its
+ * options run a local command before any connection is attempted. The user and
+ * host are data -- a git remote's userinfo, the environment, a config file, the
+ * local login name -- so neither may begin with one.
+ *
+ * `resolveConfig` calls this for every connection it resolves, which is the
+ * guard; `buildSshArgs` calls it again for a library caller that hands over a
+ * connection of its own. The rejected value is never echoed: it is someone
+ * else's text on its way to a terminal.
+ *
+ * @template {{host: string, user: string}} C
+ * @param {C} conn
+ * @param {Record<string, string>} [sources]  which tier supplied each field
+ * @returns {C} the connection, unchanged, when it is safe
+ */
+export function assertSafeConnection(conn, sources = {}) {
+  for (const [field, noun] of /** @type {const} */ ([['user', 'username'], ['host', 'host']])) {
+    if (String(conn[field]).startsWith('-')) {
+      const from = sources[field] ? ` (source: ${sources[field]})` : '';
+      throw new TransportError(
+        `the Gerrit ${noun}${from} begins with "-", which ssh would read as an option rather than a destination`,
+        {
+          code: 'UNSAFE_CONNECTION',
+          remedy: 'Correct the value where it came from, or pass --user / --host to override it.',
+        },
+      );
+    }
+  }
+  return conn;
+}
+
+/**
  * Detail a caller may ask for on top of the three flags every query sends.
  *
  * `comments` adds the change's cover messages -- the "Patch Set 7: ...", "Build
@@ -110,6 +142,7 @@ export function buildSshArgs(
   query,
   { limit = 100, connectTimeoutSeconds = 10, include = [] } = {},
 ) {
+  assertSafeConnection(conn);
   assertSafeQuery(query);
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new TransportError(`invalid limit: ${limit}`, { code: 'UNSAFE_QUERY' });
@@ -118,6 +151,8 @@ export function buildSshArgs(
     '-p', String(conn.port),
     '-o', 'BatchMode=yes',
     '-o', `ConnectTimeout=${connectTimeoutSeconds}`,
+    // Past this marker ssh parses no option, so the destination is never one.
+    '--',
     `${conn.user}@${conn.host}`,
     'gerrit', 'query',
     '--format=JSON',

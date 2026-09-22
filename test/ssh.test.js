@@ -190,3 +190,32 @@ test('queryChanges drives the whole path from intent to typed models, offline', 
     ['Release-Gate', 'Widget-Approval'],
   ]);
 });
+
+test('a user or host that begins with "-" never reaches ssh, which would read it as an option', async () => {
+  for (const conn of [
+    { host: 'gerrit.example.com', port: 29418, user: '-oUser=eve' },
+    { host: '-oHostName=elsewhere', port: 29418, user: 'ada' },
+  ]) {
+    assert.throws(() => buildSshArgs(conn, 'status:open'), (err) => {
+      assert.ok(err instanceof TransportError);
+      assert.equal(err.code, 'UNSAFE_CONNECTION');
+      return true;
+    }, `buildSshArgs should have refused: ${JSON.stringify(conn)}`);
+
+    const runner = fakeRunner([{ match: (f) => f === 'ssh', result: { stdout: '' } }]);
+    await assert.rejects(() => sshQuery(conn, 'status:open', { runner }), (err) => {
+      assert.ok(err instanceof TransportError);
+      assert.equal(err.code, 'UNSAFE_CONNECTION');
+      return true;
+    }, `sshQuery should have refused: ${JSON.stringify(conn)}`);
+    assert.equal(runner.calls.length, 0, 'ssh must not be spawned at all');
+  }
+});
+
+test('the destination follows an explicit end-of-options marker', () => {
+  const args = buildSshArgs(CONN, 'status:open');
+  const marker = args.indexOf('--');
+  assert.notEqual(marker, -1, 'no -- in the ssh argv');
+  assert.equal(args[marker + 1], 'ada@gerrit.example.com');
+  assert.equal(args.slice(0, marker).includes('ada@gerrit.example.com'), false);
+});

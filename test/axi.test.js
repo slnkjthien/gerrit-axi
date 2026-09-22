@@ -678,3 +678,29 @@ test('the tier imports src/core and nothing from src/cli', () => {
     }
   }
 });
+
+test('an origin remote whose username ssh would read as an option never reaches ssh', async () => {
+  const stdout = captureStream();
+  const stderr = captureStream();
+  const runner = fakeRunner([
+    {
+      match: (f, a) => f === 'git' && a.includes('remote'),
+      result: { stdout: 'ssh://%2DoUser=eve@gerrit.example.com:29418/acme/one\n' },
+    },
+    { match: (f) => f === 'ssh', result: { stdout: fixture('query-stack.txt') } },
+  ]);
+  for (const argv of [['status'], ['show', '200101']]) {
+    const code = await main(argv, {
+      cwd: '/some/checkout',
+      env: ENV,
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      runner,
+    });
+    assert.equal(code, EXIT.transport, argv.join(' '));
+  }
+  assert.equal(runner.calls.filter((c) => c.file === 'ssh').length, 0);
+  assert.equal(stdout.text, '');
+  assert.match(stderr.text, /^code: UNSAFE_CONNECTION$/m);
+  assert.equal(stderr.text.includes('oUser=eve'), false, 'the rejected value is echoed');
+});
