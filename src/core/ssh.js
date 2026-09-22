@@ -232,12 +232,12 @@ export async function sshQuery(
   }
   if (result.code !== 0) {
     throw new TransportError(
-      `ssh to ${conn.user}@${conn.host}:${conn.port} failed: ${firstLine(result.stderr) || `exit ${result.code}`}`,
+      `ssh to Gerrit failed: ${firstLine(result.stderr) || `exit ${result.code}`}`,
       {
         code: 'SSH_FAILED',
         remedy: [
           'Check that your SSH key is registered with Gerrit and that the host is reachable:',
-          `    ssh -p ${conn.port} ${conn.user}@${conn.host} gerrit version`,
+          `    ssh -p ${conn.port} -- <user>@<host> gerrit version`,
         ].join('\n'),
       },
     );

@@ -150,6 +150,26 @@ test('a non-zero ssh exit becomes an actionable transport error', async () => {
   );
 });
 
+test('an ssh failure never echoes the resolved user or host', async () => {
+  const conn = { host: 'gerrit.example.com', port: 29418, user: 'a$(touch pwned)' };
+  const runner = fakeRunner([{
+    match: (f) => f === 'ssh',
+    result: { code: 255, stderr: 'Permission denied (publickey).\n' },
+  }]);
+  await assert.rejects(
+    () => sshQuery(conn, 'status:open', { runner }),
+    (err) => {
+      assert.equal(err.code, 'SSH_FAILED');
+      for (const text of [err.message, err.remedy]) {
+        assert.equal(text.includes('$(touch pwned)'), false, text);
+        assert.equal(text.includes('gerrit.example.com'), false, text);
+      }
+      assert.match(err.remedy, /ssh -p 29418 -- <user>@<host> gerrit version/);
+      return true;
+    },
+  );
+});
+
 test('a missing ssh binary is reported as such', async () => {
   const runner = /** @type {any} */ (async () => { throw new Error('spawn ssh ENOENT'); });
   await assert.rejects(() => sshQuery(CONN, 'status:open', { runner }), (err) => {
