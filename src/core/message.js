@@ -77,7 +77,7 @@ export function quoteForGerrit(text) {
 /**
  * The argv for ssh, pinned: the destination, then exactly the remote words
  * `gerrit review --message <text> <change>,<patchSet>`. There is no parameter
- * for any other option, and the test suite fails if one is added.
+ * for any other option.
  *
  * @param {{host: string, port: number, user: string}} conn
  * @param {number} change

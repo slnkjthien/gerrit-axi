@@ -127,6 +127,29 @@ test('the argv is pinned: destination, gerrit review, --message, the quoted text
   ]);
 });
 
+test('no text can add an option: --message is the only one, and the text is one quoted word', () => {
+  const texts = [
+    '--code-review +2',
+    '--submit',
+    '--label Verified=+1',
+    '-l Code-Review=+2',
+    'first line\n--code-review +2\n--submit',
+    "it's 'quoted' --submit",
+    'a "double" --label Verified=+1',
+    'a `backtick` $(gerrit review --code-review +2 1,1)',
+    '-1 leading dash',
+  ];
+  for (const text of texts) {
+    const argv = buildMessageArgs(CONN, 200101, 4, text);
+    const remote = argv.slice(argv.indexOf('ada@gerrit.example.com') + 1);
+    assert.deepEqual(remote, ['gerrit', 'review', '--message', quoteForGerrit(text), '200101,4'],
+      `${JSON.stringify(text)} must travel as the single quoted word after --message`);
+    const words = gerritSplit(remote.join(' '));
+    assert.deepEqual(words, ['gerrit', 'review', '--message', text, '200101,4'],
+      `Gerrit must read ${JSON.stringify(text)} as the --message value and no other option`);
+  }
+});
+
 test('an empty text, or one no argv can carry, is refused before anything runs', () => {
   for (const text of ['', '   ', '\n\n', undefined, null]) {
     assert.throws(() => buildMessageArgs(CONN, 200101, 4, /** @type {any} */ (text)),

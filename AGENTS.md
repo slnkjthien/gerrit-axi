@@ -51,11 +51,13 @@ fails if any of them is broken, which is the intended way to find out.
   `gerrit review --message <quoted text> <change>,<patchset>` with no parameter
   for another option; a REST `/review` or `/votes` path, `set-reviewers`,
   `set-topic`, and a label option on a push may not appear anywhere. The layering
-  test fails if any of that changes. That check reads source text on purpose, an
-  exception to asserting behaviour: a security invariant needs a whole-source
-  claim. `test/vote-ban.test.js` is its runtime complement and pins the message
-  argv element by element; keep both. Those three are the only writes by design:
-  add no other.
+  test's whole-source scan fails if any of that changes; it exempts
+  `src/core/message.js` only for spelling the command. That scan reads
+  source text on purpose, an exception to asserting behaviour: a security
+  invariant needs a whole-source claim. `test/message.test.js` and
+  `test/vote-ban.test.js` are its runtime complement and pin the message argv by
+  running it; keep all three. Those three are the only writes by design: add no
+  other.
 - `publish` never regenerates a Change-Id: a new one creates a different change
   and orphans the original's review. An existing one is pushed verbatim; a
   missing one is stamped and written back into the local branch (messages only)

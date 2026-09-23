@@ -237,7 +237,8 @@ test('voting is structurally impossible: no voting command or voting path exists
 
   // No voting vocabulary, in any spelling a caller could reach. One module is
   // exempt from the first two patterns: the one that posts a change message
-  // spells the command once, and the test after this one pins what it spells.
+  // spells the command once, and test/message.test.js and test/vote-ban.test.js
+  // pin the argv it builds by running it.
   const votingPaths = [
     [/\bgerrit\b[\s'"`,]*\breview\b/, 'the gerrit review SSH command, as a string or as argv',
       MESSAGE_MODULE],
@@ -256,30 +257,5 @@ test('voting is structurally impossible: no voting command or voting path exists
       assert.equal(/** @type {RegExp} */ (pattern).test(text), false,
         `${rel(file)} contains ${what} (${pattern}). ${WHY}`);
     }
-  }
-});
-
-test('the message module spells gerrit review once, with --message and no other option', () => {
-  // The exemption in the test above is load-bearing only while this holds. The
-  // command that posts a change message is the command that votes, submits,
-  // abandons, restores and rebases, so the argv that names it is pinned to a
-  // literal: destination, the command, --message, the quoted text, the target.
-  // A parameter for anything else, a spread of anything but the destination, or
-  // a second spelling of the command anywhere in the file fails here.
-  const text = stripComments(readFileSync(MESSAGE_MODULE, 'utf8'));
-  assert.equal((text.match(/'review'/g) ?? []).length, 1, 'gerrit review is spelled exactly once');
-  assert.match(text, /export function buildMessageArgs\(conn, change, patchSet, text\) \{/,
-    'the argv builder takes a connection, a change, a patch set and a text, and no options');
-  assert.match(text,
-    /\[\s*\.\.\.buildSshDestination\(conn\),\s*'gerrit',\s*'review',\s*'--message',\s*quoteForGerrit\(body\),\s*`\$\{change\},\$\{patchSet\}`,\s*\]/,
-    'the remote words are a literal: gerrit review --message <quoted text> <change>,<patchSet>');
-
-  // Every option literal in the file, long or short, is --message.
-  const options = [...text.matchAll(/['"`](-{1,2}[a-zA-Z][a-zA-Z-]*)(?:=[^'"`]*)?['"`]/g)].map((m) => m[1]);
-  assert.deepEqual([...new Set(options)], ['--message'],
-    `the message module names an option other than --message: ${options.join(' ')}`);
-  for (const flag of ['--code-review', '--verified', '--label', '--submit', '--abandon', '--restore',
-    '--rebase', '--publish', '--move', '--json', '--notify', '--tag', '--project', '--branch']) {
-    assert.equal(text.includes(flag), false, `the message module must not name ${flag}`);
   }
 });
