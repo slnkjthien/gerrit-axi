@@ -226,7 +226,7 @@ test('the text is never taken from argv, and nothing is posted when there is non
       { argv: ['message'], opts: { stdin: 'text' }, error: /exactly one change/ },
       { argv: ['message', '200101', '200102'], opts: { stdin: 'text' }, error: /exactly one change/ },
       { argv: ['message', '200101', 'Looks fine'], opts: { stdin: 'text' }, error: /not a change number/ },
-      { argv: ['message', '200101', '--message', 'x'], opts: { stdin: 'text' }, error: /unknown option: --message/ },
+      { argv: ['message', '200101', '--message', 'x'], opts: { stdin: 'text' }, error: /unknown option for message: --message/ },
       { argv: ['message', '200101'], opts: { stdin: '' }, error: /stdin is empty/ },
       { argv: ['message', '200101'], opts: { stdin: '  \n\n' }, error: /stdin is empty/ },
       { argv: ['message', '200101'], opts: { tty: true }, error: /stdin or in --file/ },

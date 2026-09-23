@@ -13,6 +13,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
+import { COMMAND_OPTIONS, nearest } from '../src/axi/args.js';
 import { EXIT, main } from '../src/axi/main.js';
 import { Session } from '../src/core/session.js';
 import { encode } from '../src/axi/toon.js';
@@ -358,6 +359,107 @@ test('a failure is a typed record on stderr, never prose on stdout', async () =>
   }
 });
 
+const GLOBAL_OPTIONS = ['--json', '--host', '--user', '--port', '--project', '--rest-base', '--help', '--version'];
+
+test('an unknown option is refused by name, before any call, with the command\'s options listed', async () => {
+  // One turn to correct: the record names the command and the option, and its
+  // remedy lists every option the command does take plus the global ones, so the
+  // caller's next move is the corrected call, not `--help`. Every command,
+  // including the dashboard both bare and by name, and message.
+  const cases = [
+    { argv: ['--nonsense'], op: 'dashboard' },
+    { argv: ['dashboard', '--nonsense'], op: 'dashboard' },
+    { argv: ['status', 'mine', '--nonsense'], op: 'status' },
+    { argv: ['show', '200101', '--nonsense'], op: 'show' },
+    { argv: ['comments', '200101', '--nonsense'], op: 'comments' },
+    { argv: ['auth', 'status', '--nonsense'], op: 'auth' },
+    { argv: ['publish', '--squash', '--nonsense'], op: 'publish' },
+    { argv: ['submit', '200101', '--nonsense'], op: 'submit' },
+    { argv: ['message', '200101', '--nonsense'], op: 'message' },
+  ];
+  for (const { argv, op } of cases) {
+    const { code, out, err, runner } = await run([...argv, '--json']);
+    const label = argv.join(' ');
+    assert.equal(code, EXIT.usage, `${label} exit code`);
+    assert.equal(out, '', `${label} must write nothing to stdout`);
+    assert.equal(runner.calls.length, 0, `${label} is rejected before git, ssh or the server is asked anything`);
+    const record = JSON.parse(err);
+    assert.deepEqual(
+      { ok: record.ok, op: record.op, error: record.error, code: record.code, kind: record.kind },
+      { ok: false, op, error: `unknown option for ${op}: --nonsense`, code: 'BAD_USAGE', kind: 'usage' },
+      label,
+    );
+    const own = [...COMMAND_OPTIONS[op].withValue, ...COMMAND_OPTIONS[op].boolean];
+    if (own.length === 0) {
+      assert.match(record.remedy, new RegExp(`^${op} takes no options of its own\\. `), label);
+    } else {
+      assert.match(record.remedy, new RegExp(`^Options for ${op}: ${own.join(', ')}\\. `), label);
+    }
+    assert.match(record.remedy, new RegExp(`Global options: ${GLOBAL_OPTIONS.join(', ')}\\.$`), label);
+    assert.equal(record.remedy.includes('Did you mean'), false, `${label}: --nonsense is near nothing`);
+  }
+});
+
+test('a misspelt option is pointed at the nearest one, a stray one at the command that takes it', async () => {
+  const typo = await run(['show', '200101', '--comment', '--json']);
+  assert.equal(typo.code, EXIT.usage);
+  assert.equal(JSON.parse(typo.err).error, 'unknown option for show: --comment');
+  assert.match(JSON.parse(typo.err).remedy, /^Did you mean --comments\? Options for show: /);
+
+  // The same misspelling with a value attached is still an unknown option, not a
+  // complaint that a nonexistent option takes no value.
+  const withValue = await run(['show', '200101', '--comment=1', '--json']);
+  assert.equal(JSON.parse(withValue.err).error, 'unknown option for show: --comment');
+  assert.match(JSON.parse(withValue.err).remedy, /^Did you mean --comments\? /);
+  const boolWithValue = await run(['show', '200101', '--comments=1', '--json']);
+  assert.equal(JSON.parse(boolWithValue.err).error, '--comments does not take a value');
+
+  // A global option, misspelt, is suggested too -- in TOON as well as JSON.
+  const global = await run(['status', '--jsno']);
+  assert.equal(global.code, EXIT.usage);
+  assert.match(global.err, /^error: "unknown option for status: --jsno"$/m);
+  assert.match(global.err, /^remedy: "Did you mean --json\? Options for status: --query, --limit\. /m);
+
+  // An option another command takes is named as that command's, which is the
+  // more useful fact than "invalid here".
+  const stray = await run(['status', '--rows', '3', '--json']);
+  assert.equal(JSON.parse(stray.err).error, 'unknown option for status: --rows');
+  assert.match(JSON.parse(stray.err).remedy, /^--rows is an option of dashboard, not of status\. Options for status: /);
+  const shared = await run(['dashboard', '--bots', '--json']);
+  assert.match(JSON.parse(shared.err).remedy, /^--bots is an option of show and comments, not of dashboard\. /);
+
+  // Nothing close enough is named as a guess.
+  const far = await run(['show', '200101', '--zzzzzz', '--json']);
+  assert.equal(JSON.parse(far.err).remedy.includes('Did you mean'), false);
+
+  // The threshold: two edits for a word long enough to carry them, one otherwise,
+  // a transposition counting as one edit.
+  assert.equal(nearest('--comment', ['--comments', '--messages']), '--comments');
+  assert.equal(nearest('--mesages', ['--comments', '--messages']), '--messages');
+  assert.equal(nearest('--jsno', ['--json', '--host']), '--json');
+  assert.equal(nearest('--bot', ['--bots', '--host']), '--bots');
+  assert.equal(nearest('--foo', ['--json', '--host', '--port']), undefined);
+  assert.equal(nearest('--rows', ['--host']), undefined, 'a short word within two edits is not a guess');
+});
+
+test('an unknown command is refused with the commands listed, and the nearest named', async () => {
+  const typo = await run(['stauts', 'mine', '--json']);
+  assert.equal(typo.code, EXIT.usage);
+  assert.equal(typo.out, '');
+  assert.equal(typo.runner.calls.length, 0);
+  const record = JSON.parse(typo.err);
+  assert.deepEqual(
+    { ok: record.ok, op: record.op, error: record.error, code: record.code, kind: record.kind },
+    { ok: false, op: null, error: 'unknown command: stauts', code: 'BAD_USAGE', kind: 'usage' },
+  );
+  assert.equal(record.remedy,
+    'Did you mean status? Commands: dashboard, status, show, comments, auth, publish, submit, message, help, version.');
+
+  const far = await run(['frobnicate', '--json']);
+  assert.equal(JSON.parse(far.err).remedy,
+    'Commands: dashboard, status, show, comments, auth, publish, submit, message, help, version.');
+});
+
 test('the failure record distinguishes configuration, auth and transport', async () => {
   // No git remote, no env, no config file: the host cannot be resolved.
   const stdout = captureStream();
@@ -695,12 +797,9 @@ test('with no host to resolve, the dashboard is an error record, not usage', asy
 
 test('the top-level help lists every option every subcommand takes', async () => {
   // The repo's own convention: an option discoverable only from a subcommand's
-  // help gets missed. Read the flag names out of the parser's own tables so a
+  // help gets missed. Read the flag names out of the parser's own catalogue so a
   // new one cannot be added without appearing here.
-  const source = readFileSync(path.join(SRC_DIR, 'axi', 'main.js'), 'utf8');
-  const specs = /const FLAG_SPECS = \{[\s\S]*?\n\};/.exec(source)?.[0] ?? '';
-  assert.ok(specs, 'FLAG_SPECS should be readable from main.js');
-  const flags = [...specs.matchAll(/'(--[a-z-]+)'/g)].map((m) => m[1]);
+  const flags = Object.values(COMMAND_OPTIONS).flatMap((o) => [...o.withValue, ...o.boolean]);
   assert.ok(flags.length >= 6, `expected the subcommand flags, found ${flags.join(' ')}`);
 
   const stdout = captureStream();

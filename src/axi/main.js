@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 
 import { AuthError, ConfigError, GerritError, TransportError } from '../core/errors.js';
 import { createSession } from '../core/session.js';
-import { parseArgs } from './args.js';
+import { nearest, parseArgs } from './args.js';
 import {
   opAuth,
   opComments,
@@ -48,7 +48,10 @@ a count per section and the next step to run.
 
 Records go to stdout: TOON by default, strict JSON with --json. A failure writes
 a typed error record to stderr, leaves stdout empty, and exits non-zero, so a
-caller never has to tell data from prose.
+caller never has to tell data from prose. An option a command does not take, or
+a command that does not exist, is refused before anything is asked of git or the
+server (exit 2), and the record's remedy lists the options that command does
+take, or the commands, naming the nearest when a misspelling is close.
 
 commands, and the options each one takes:
   dashboard                   the home view above, by name
@@ -108,24 +111,7 @@ It publishes, posts a change message, and submits, and it cannot vote: no comman
 records a label, and whether a change may be submitted is decided by the server
 alone.`;
 
-/** Command-specific flags. Everything here is also listed in USAGE above. */
-const FLAG_SPECS = {
-  dashboard: { withValue: new Set(['--rows']), boolean: new Set() },
-  status: { withValue: new Set(['--query', '--limit']), boolean: new Set() },
-  show: {
-    withValue: new Set(['--messages']),
-    boolean: new Set(['--comments', '--bots', '--humans']),
-  },
-  comments: { withValue: new Set(), boolean: new Set(['--bots', '--humans']) },
-  auth: { withValue: new Set(), boolean: new Set() },
-  publish: {
-    withValue: new Set(['--topic', '--branch']),
-    boolean: new Set(['--stack', '--squash']),
-  },
-  submit: { withValue: new Set(), boolean: new Set() },
-  message: { withValue: new Set(['--file']), boolean: new Set() },
-};
-
+/** Each command's options are `COMMAND_OPTIONS` in args.js; USAGE above lists them too. */
 const OPS = {
   dashboard: opDashboard,
   status: opStatus,
@@ -183,10 +169,17 @@ export async function main(argv, io = {}) {
   const op = /** @type {keyof typeof OPS|undefined} */ (
     Object.hasOwn(OPS, command) ? command : undefined
   );
-  if (!op) return fail(new UsageError(`unknown command: ${command}`), undefined);
+  if (!op) {
+    // The same guarantee for a command as for an option: rejected by name, and
+    // the valid ones listed, so the next call needs no --help first.
+    const commands = [...Object.keys(OPS), 'help', 'version'];
+    const near = nearest(command, commands);
+    const remedy = `${near ? `Did you mean ${near}? ` : ''}Commands: ${commands.join(', ')}.`;
+    return fail(new UsageError(`unknown command: ${command}`, remedy), undefined);
+  }
 
   try {
-    const args = parseArgs(rest, FLAG_SPECS[op]);
+    const args = parseArgs(rest, op);
     const [stray] = args.positional;
     if (!named && stray !== undefined && Object.hasOwn(OPS, stray)) {
       const at = argv.indexOf(stray);

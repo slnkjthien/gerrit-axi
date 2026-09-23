@@ -88,6 +88,13 @@ fails if any of them is broken, which is the intended way to find out.
   binary as well as in its usage string. Options that appear only in the
   subcommand's help have been missed in practice; `test/review-state.test.js` and
   `test/axi.test.js` check the top-level help mentions them.
+- `gerrit-axi`'s options have one catalogue, `COMMAND_OPTIONS` in
+  `src/axi/args.js`: the parser rejects by it, the unknown-option record lists
+  from it, and the help-coverage test reads it. An option a command does not take
+  is refused by name with a `BAD_USAGE` record whose `remedy` lists that
+  command's options and the global ones, before anything is asked of git or the
+  server; add an option there and in `USAGE` in `src/axi/main.js`, never at a
+  call site.
 
 ## Credential handling
 

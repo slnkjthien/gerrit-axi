@@ -197,7 +197,9 @@ gerrit-axi message <change>            post one change-level message on the curr
 
 Global options: `--json`, `--host`, `--user`, `--port`, `--project`,
 `--rest-base`, `-h/--help`, `-V/--version`. As with `gerrit`, every option is
-listed in `gerrit-axi --help` too.
+listed in `gerrit-axi --help` too. An option a command does not take is refused,
+never dropped, and the error record lists the options it does take — see
+[Failures](#failures).
 
 ### Records, not layout
 
@@ -458,10 +460,27 @@ remedy: Check the change number; a change you cannot see also reads as 404.
 exit=5
 ```
 
-`code` is core's machine-readable error code and `kind` is the class the exit code
-was chosen from (`usage`, `config`, `auth`, `transport`, `gerrit`, `internal`).
-`remedy` appears only when core supplied one, and is a hint for whoever reads the
-log — not a field to branch on.
+`code` is the raiser's machine-readable error code and `kind` is the class the
+exit code was chosen from (`usage`, `config`, `auth`, `transport`, `gerrit`,
+`internal`). `remedy` appears only when the raiser supplied one, and is a hint for
+whoever reads the log — not a field to branch on.
+
+A usage error is refused before git, ssh or the server is asked anything. An
+option the command does not take is named together with the options it does
+take, so the corrected call needs no `--help` first; a misspelling close to a
+valid option is pointed at that option, and an option another command takes is
+pointed at that command. An unknown command lists the commands the same way.
+
+```console
+$ gerrit-axi show 200101 --comment; echo "exit=$?"
+ok: false
+op: show
+error: "unknown option for show: --comment"
+code: BAD_USAGE
+kind: usage
+remedy: "Did you mean --comments? Options for show: --messages, --comments, --bots, --humans. Global options: --json, --host, --user, --port, --project, --rest-base, --help, --version."
+exit=2
+```
 
 ## Authentication
 
@@ -799,8 +818,9 @@ injectable, the real code paths run against them. Covered in particular:
 - the agent tier end to end from a recorded three-change stack: one invocation
   returning one record per change, a label the server has grown arriving as a row
   with no header change, the inline-comment path attributed per change, `--json`
-  carrying the same fields, and a failure landing on stderr as a typed record
-  with stdout empty
+  carrying the same fields, a failure landing on stderr as a typed record
+  with stdout empty, and an unknown option or command refused before any call
+  with the valid ones listed in the record
 - the TOON encoder's quoting and escaping, so a consumer can always tell a string
   from a number, a null, or a delimiter
 - publication against a scripted repository: existing Change-Ids carried byte for
