@@ -326,7 +326,7 @@ test('--json carries the same fields as strict JSON', async () => {
   assert.equal(document.votes[0].value, 2, 'a vote value is a number');
 });
 
-test('a failure is a typed record on stderr, never prose on stdout', async () => {
+test('a failure is a typed record on stdout, never prose, and stderr stays empty', async () => {
   const cases = [
     { argv: ['nope'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['show', 'HEAD'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
@@ -352,10 +352,10 @@ test('a failure is a typed record on stderr, never prose on stdout', async () =>
   for (const expected of cases) {
     const { code, out, err } = await run(expected.argv);
     assert.equal(code, expected.code, `${expected.argv.join(' ')} exit code`);
-    assert.equal(out, '', `${expected.argv.join(' ')} must write nothing to stdout`);
-    assert.match(err, /^ok: false$/m);
-    assert.match(err, new RegExp(`^code: ${expected.error}$`, 'm'));
-    assert.match(err, new RegExp(`^kind: ${expected.kind}$`, 'm'));
+    assert.equal(err, '', `${expected.argv.join(' ')} must write nothing to stderr`);
+    assert.match(out, /^ok: false$/m);
+    assert.match(out, new RegExp(`^code: ${expected.error}$`, 'm'));
+    assert.match(out, new RegExp(`^kind: ${expected.kind}$`, 'm'));
   }
 });
 
@@ -381,9 +381,9 @@ test('an unknown option is refused by name, before any call, with the command\'s
     const { code, out, err, runner } = await run([...argv, '--json']);
     const label = argv.join(' ');
     assert.equal(code, EXIT.usage, `${label} exit code`);
-    assert.equal(out, '', `${label} must write nothing to stdout`);
+    assert.equal(err, '', `${label} must write nothing to stderr`);
     assert.equal(runner.calls.length, 0, `${label} is rejected before git, ssh or the server is asked anything`);
-    const record = JSON.parse(err);
+    const record = JSON.parse(out);
     assert.deepEqual(
       { ok: record.ok, op: record.op, error: record.error, code: record.code, kind: record.kind },
       { ok: false, op, error: `unknown option for ${op}: --nonsense`, code: 'BAD_USAGE', kind: 'usage' },
@@ -403,34 +403,34 @@ test('an unknown option is refused by name, before any call, with the command\'s
 test('a misspelt option is pointed at the nearest one, a stray one at the command that takes it', async () => {
   const typo = await run(['show', '200101', '--comment', '--json']);
   assert.equal(typo.code, EXIT.usage);
-  assert.equal(JSON.parse(typo.err).error, 'unknown option for show: --comment');
-  assert.match(JSON.parse(typo.err).remedy, /^Did you mean --comments\? Options for show: /);
+  assert.equal(JSON.parse(typo.out).error, 'unknown option for show: --comment');
+  assert.match(JSON.parse(typo.out).remedy, /^Did you mean --comments\? Options for show: /);
 
   // The same misspelling with a value attached is still an unknown option, not a
   // complaint that a nonexistent option takes no value.
   const withValue = await run(['show', '200101', '--comment=1', '--json']);
-  assert.equal(JSON.parse(withValue.err).error, 'unknown option for show: --comment');
-  assert.match(JSON.parse(withValue.err).remedy, /^Did you mean --comments\? /);
+  assert.equal(JSON.parse(withValue.out).error, 'unknown option for show: --comment');
+  assert.match(JSON.parse(withValue.out).remedy, /^Did you mean --comments\? /);
   const boolWithValue = await run(['show', '200101', '--comments=1', '--json']);
-  assert.equal(JSON.parse(boolWithValue.err).error, '--comments does not take a value');
+  assert.equal(JSON.parse(boolWithValue.out).error, '--comments does not take a value');
 
   // A global option, misspelt, is suggested too -- in TOON as well as JSON.
   const global = await run(['status', '--jsno']);
   assert.equal(global.code, EXIT.usage);
-  assert.match(global.err, /^error: "unknown option for status: --jsno"$/m);
-  assert.match(global.err, /^remedy: "Did you mean --json\? Options for status: --query, --limit\. /m);
+  assert.match(global.out, /^error: "unknown option for status: --jsno"$/m);
+  assert.match(global.out, /^remedy: "Did you mean --json\? Options for status: --query, --limit\. /m);
 
   // An option another command takes is named as that command's, which is the
   // more useful fact than "invalid here".
   const stray = await run(['status', '--rows', '3', '--json']);
-  assert.equal(JSON.parse(stray.err).error, 'unknown option for status: --rows');
-  assert.match(JSON.parse(stray.err).remedy, /^--rows is an option of dashboard, not of status\. Options for status: /);
+  assert.equal(JSON.parse(stray.out).error, 'unknown option for status: --rows');
+  assert.match(JSON.parse(stray.out).remedy, /^--rows is an option of dashboard, not of status\. Options for status: /);
   const shared = await run(['dashboard', '--bots', '--json']);
-  assert.match(JSON.parse(shared.err).remedy, /^--bots is an option of show and comments, not of dashboard\. /);
+  assert.match(JSON.parse(shared.out).remedy, /^--bots is an option of show and comments, not of dashboard\. /);
 
   // Nothing close enough is named as a guess.
   const far = await run(['show', '200101', '--zzzzzz', '--json']);
-  assert.equal(JSON.parse(far.err).remedy.includes('Did you mean'), false);
+  assert.equal(JSON.parse(far.out).remedy.includes('Did you mean'), false);
 
   // The threshold: two edits for a word long enough to carry them, one otherwise,
   // a transposition counting as one edit.
@@ -445,9 +445,9 @@ test('a misspelt option is pointed at the nearest one, a stray one at the comman
 test('an unknown command is refused with the commands listed, and the nearest named', async () => {
   const typo = await run(['stauts', 'mine', '--json']);
   assert.equal(typo.code, EXIT.usage);
-  assert.equal(typo.out, '');
+  assert.equal(typo.err, '');
   assert.equal(typo.runner.calls.length, 0);
-  const record = JSON.parse(typo.err);
+  const record = JSON.parse(typo.out);
   assert.deepEqual(
     { ok: record.ok, op: record.op, error: record.error, code: record.code, kind: record.kind },
     { ok: false, op: null, error: 'unknown command: stauts', code: 'BAD_USAGE', kind: 'usage' },
@@ -456,7 +456,7 @@ test('an unknown command is refused with the commands listed, and the nearest na
     'Did you mean status? Commands: dashboard, status, show, comments, auth, publish, submit, message, help, version.');
 
   const far = await run(['frobnicate', '--json']);
-  assert.equal(JSON.parse(far.err).remedy,
+  assert.equal(JSON.parse(far.out).remedy,
     'Commands: dashboard, status, show, comments, auth, publish, submit, message, help, version.');
 });
 
@@ -472,10 +472,10 @@ test('the failure record distinguishes configuration, auth and transport', async
     runner: fakeRunner([{ match: () => true, result: { code: 1, stdout: '' } }]),
   });
   assert.equal(config, EXIT.config);
-  assert.equal(stdout.text, '');
-  assert.match(stderr.text, /^code: HOST_UNRESOLVED$/m);
-  assert.match(stderr.text, /^kind: config$/m);
-  assert.match(stderr.text, /^remedy: /m, 'core\'s remedy is passed through for a human reading a log');
+  assert.equal(stderr.text, '');
+  assert.match(stdout.text, /^code: HOST_UNRESOLVED$/m);
+  assert.match(stdout.text, /^kind: config$/m);
+  assert.match(stdout.text, /^remedy: /m, 'core\'s remedy is passed through for a human reading a log');
 
   // A credential the server rejects, and a change nobody can see.
   const restored = Session.prototype.token;
@@ -489,15 +489,15 @@ test('the failure record distinguishes configuration, auth and transport', async
       fetchRoutes: [{ path: /comments$/, status: 401, body: 'Unauthorized' }],
     });
     assert.equal(unauthorized.code, EXIT.auth);
-    assert.match(unauthorized.err, /^kind: auth$/m);
-    assert.match(unauthorized.err, /^code: UNAUTHORIZED$/m);
+    assert.match(unauthorized.out, /^kind: auth$/m);
+    assert.match(unauthorized.out, /^code: UNAUTHORIZED$/m);
 
     const notFound = await run(['comments', '200103', '--json'], {
       fetchRoutes: [{ path: /comments$/, status: 404, body: 'Not found' }],
     });
     assert.equal(notFound.code, EXIT.transport);
-    assert.equal(notFound.out, '');
-    const record = JSON.parse(notFound.err);
+    assert.equal(notFound.err, '');
+    const record = JSON.parse(notFound.out);
     assert.deepEqual(
       { ok: record.ok, op: record.op, code: record.code, kind: record.kind },
       { ok: false, op: 'comments', code: 'NOT_FOUND', kind: 'transport' },
@@ -719,8 +719,8 @@ test('a page the server cut short is flagged, and its count is marked as a floor
 test('an option before a command is named as the problem, not read as the dashboard', async () => {
   const { code, out, err } = await run(['--json', 'status', 'mine'], { ssh: DASHBOARD });
   assert.equal(code, EXIT.usage);
-  assert.equal(out, '');
-  const record = JSON.parse(err);
+  assert.equal(err, '');
+  const record = JSON.parse(out);
   assert.equal(record.code, 'BAD_USAGE');
   assert.equal(record.error, 'options come after the command: gerrit-axi status --json mine');
 });
@@ -786,13 +786,14 @@ test('with no host to resolve, the dashboard is an error record, not usage', asy
     fetchImpl: fakeFetch([]),
   });
   assert.equal(code, EXIT.config);
-  assert.equal(stdout.text, '', 'nothing on stdout: not usage, not a partial dashboard');
-  assert.match(stderr.text, /^ok: false$/m);
-  assert.match(stderr.text, /^op: dashboard$/m);
-  assert.match(stderr.text, /^code: HOST_UNRESOLVED$/m);
-  assert.match(stderr.text, /^kind: config$/m);
-  assert.match(stderr.text, /^remedy: /m);
-  assert.equal(stderr.text.includes('usage:'), false);
+  assert.equal(stderr.text, '');
+  assert.match(stdout.text, /^ok: false$/m);
+  assert.match(stdout.text, /^op: dashboard$/m);
+  assert.match(stdout.text, /^code: HOST_UNRESOLVED$/m);
+  assert.match(stdout.text, /^kind: config$/m);
+  assert.match(stdout.text, /^remedy: /m);
+  assert.equal(stdout.text.includes('usage:'), false, 'the record, not usage, not a partial dashboard');
+  assert.equal(stdout.text.includes('sections'), false, 'the record, not usage, not a partial dashboard');
 });
 
 test('the top-level help lists every option every subcommand takes', async () => {
@@ -931,9 +932,9 @@ test('a submit the server refuses is an error record carrying the server\'s own 
       fetchRoutes: [{ path: '/a/changes/200102/submit', status: 409, body: refusal }],
     });
     assert.equal(code, EXIT.transport);
-    assert.equal(out, '');
+    assert.equal(err, '');
     assert.equal(runner.calls.filter((call) => call.file === 'ssh').length, 0);
-    const record = JSON.parse(err);
+    const record = JSON.parse(out);
     assert.deepEqual(
       { ok: record.ok, op: record.op, code: record.code, kind: record.kind },
       { ok: false, op: 'submit', code: 'SUBMIT_REFUSED', kind: 'transport' },
@@ -1131,7 +1132,7 @@ test('an origin remote whose username ssh would read as an option never reaches 
     assert.equal(code, EXIT.transport, argv.join(' '));
   }
   assert.equal(runner.calls.filter((c) => c.file === 'ssh').length, 0);
-  assert.equal(stdout.text, '');
-  assert.match(stderr.text, /^code: UNSAFE_CONNECTION$/m);
-  assert.equal(stderr.text.includes('oUser=eve'), false, 'the rejected value is echoed');
+  assert.equal(stderr.text, '');
+  assert.match(stdout.text, /^code: UNSAFE_CONNECTION$/m);
+  assert.equal(stdout.text.includes('oUser=eve'), false, 'the rejected value is echoed');
 });

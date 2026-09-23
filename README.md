@@ -313,7 +313,7 @@ cannot be split locally from one query. Work in progress and outgoing reviews do
 share a call, since `wip` is on the row.
 
 When no host can be resolved the dashboard fails like every other command, with
-an error record on stderr and nothing on stdout — see [Failures](#failures).
+an error record on stdout and a non-zero exit — see [Failures](#failures).
 
 ### Inline comments
 
@@ -446,8 +446,11 @@ comments, replies to threads, and reviewers are not part of this command.
 
 ### Failures
 
-A failure writes a typed record to **stderr**, leaves stdout **empty**, and exits
-non-zero. A consumer never has to tell data from prose:
+A failure writes a typed record to **stdout**, in the same format as the data
+and with `ok: false`, writes nothing to stderr, and exits non-zero. A consumer
+reads one stream and parses one document; the exit code and `ok` say whether it
+holds data or the reason there is none, and there is never a sentence of prose
+to tell from either:
 
 ```console
 $ gerrit-axi comments 200103; echo "exit=$?"
@@ -818,8 +821,8 @@ injectable, the real code paths run against them. Covered in particular:
 - the agent tier end to end from a recorded three-change stack: one invocation
   returning one record per change, a label the server has grown arriving as a row
   with no header change, the inline-comment path attributed per change, `--json`
-  carrying the same fields, a failure landing on stderr as a typed record
-  with stdout empty, and an unknown option or command refused before any call
+  carrying the same fields, a failure landing on stdout as a typed record
+  with stderr empty, and an unknown option or command refused before any call
   with the valid ones listed in the record
 - the TOON encoder's quoting and escaping, so a consumer can always tell a string
   from a number, a null, or a delimiter

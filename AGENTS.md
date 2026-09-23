@@ -72,9 +72,10 @@ fails if any of them is broken, which is the intended way to find out.
   sibling of `src/cli/`, not a wrapper — it must never import a renderer, parse a
   table, or re-derive readiness. Its records are flat tables joined on
   `(change, label)`, never one nested object per change, because that is what
-  survives a server growing a label. Errors go to stderr as a typed record with
-  stdout empty. `gerrit` still has no `--json` and must not grow one: a request
-  for machine-readable output is a request for `gerrit-axi`.
+  survives a server growing a label. Errors go to stdout as a typed record with
+  `ok: false` in the format the caller asked for, exit code non-zero, stderr
+  empty (AXI principle 6). `gerrit` still has no `--json` and must not grow one:
+  a request for machine-readable output is a request for `gerrit-axi`.
 - A bare `gerrit-axi`, or one given only options, is the dashboard (`opDashboard`
   in `src/axi/commands.js`), never usage; usage prints only for `--help`, `-h` and
   `help`, and an unresolvable host is the ordinary `HOST_UNRESOLVED` error record.

@@ -7,10 +7,11 @@
  * carry the same keys, so a consumer that switches format does not have to
  * relearn the field names.
  *
- * Data goes to stdout; a failure goes to stderr as a typed record and nothing
- * goes to stdout at all. That is the whole point of the split -- a consumer that
- * reads stdout can parse it or fail, never half-parse a sentence of prose, and
- * the exit code says which happened before it reads a byte.
+ * Everything goes to stdout, a failure included, as a typed record with `ok`
+ * false in the same format as the data: a consumer reads one stream, parses one
+ * document, and branches on `ok` and the exit code, never on a sentence of prose.
+ * stderr carries nothing, so a caller that captures stdout has the reason a call
+ * failed rather than an empty string.
  */
 
 import { AuthError, ConfigError, GerritError, TransportError } from '../core/errors.js';

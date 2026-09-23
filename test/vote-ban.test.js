@@ -127,18 +127,18 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     for (const { argv, log, head, stdin } of operations) {
       const runner = repo(log, head);
       const fetchImpl = fakeFetch(fetchRoutes);
-      const stderr = captureStream();
+      const stdout = captureStream();
       const code = await main(argv, {
         cwd: '/some/checkout',
         env: ENV,
         stdin: stdin === undefined ? undefined : /** @type {any} */ (Readable.from([stdin])),
-        stdout: captureStream().stream,
-        stderr: stderr.stream,
+        stdout: stdout.stream,
+        stderr: captureStream().stream,
         runner,
         fetchImpl,
       });
       const op = argv.join(' ') || '(dashboard)';
-      assert.equal(code, EXIT.ok, `${op} must run to completion for its calls to count:\n${stderr.text}`);
+      assert.equal(code, EXIT.ok, `${op} must run to completion for its calls to count:\n${stdout.text}`);
       for (const call of runner.calls) processes.push({ op, file: call.file, args: call.args });
       for (const call of fetchImpl.calls) {
         requests.push({ op, method: call.method ?? 'GET', path: new URL(call.url).pathname });
