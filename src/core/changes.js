@@ -372,6 +372,8 @@ function epochToDate(seconds) {
 /**
  * @typedef {{kind: 'attention'}
  *          | {kind: 'mine'}
+ *          | {kind: 'incoming'}
+ *          | {kind: 'cced'}
  *          | {kind: 'changes', numbers: Array<number|string>}
  *          | {kind: 'raw', query: string}} QuerySpec
  */
@@ -389,6 +391,16 @@ export function buildQuery(spec) {
       return 'attention:self status:open';
     case 'mine':
       return 'owner:self status:open';
+    case 'incoming':
+      // Open changes someone else owns that the caller was asked to review. A
+      // work-in-progress change is not yet a review request, which is how
+      // Gerrit's own dashboard reads it too. Negation is spelled NOT, never a
+      // leading dash: the query travels over ssh as words of a remote command
+      // line, and Gerrit's own parser reads a word beginning with "-" as an
+      // option of `gerrit query` and refuses it.
+      return 'reviewer:self NOT owner:self NOT is:wip status:open';
+    case 'cced':
+      return 'cc:self NOT is:wip status:open';
     case 'changes': {
       const numbers = spec.numbers.map((n) => {
         const s = String(n).trim();
@@ -409,7 +421,15 @@ export function buildQuery(spec) {
 }
 
 /**
- * Query changes and return typed models. Ordering is left as the server gave it;
+ * @typedef {Object} ChangePage
+ * @property {Change[]} changes   in the order the server gave them
+ * @property {boolean} more       the server said more changes matched than
+ *   `limit` let it return; false when it said nothing either way
+ */
+
+/**
+ * Query changes and return typed models with the server's own word on whether
+ * the page is complete. Ordering is left as the server gave it;
  * `sortByLastUpdatedDesc` is available for callers that want newest-first order.
  *
  * `include` names optional detail -- see `DETAIL_QUERY_FLAGS` in ssh.js. It is
@@ -419,17 +439,33 @@ export function buildQuery(spec) {
  * @param {import('./session.js').Session} session
  * @param {QuerySpec|string} spec
  * @param {{limit?: number, include?: readonly string[]}} [opts]
- * @returns {Promise<Change[]>}
+ * @returns {Promise<ChangePage>}
  */
-export async function queryChanges(session, spec, { limit = 100, include = [] } = {}) {
+export async function queryChangePage(session, spec, { limit = 100, include = [] } = {}) {
   const query = typeof spec === 'string' ? spec : buildQuery(spec);
   const { config, runner } = session;
-  const { rows } = await sshQuery(
+  const { rows, stats } = await sshQuery(
     { host: config.host, port: config.port, user: config.user },
     query,
     { limit, runner, include },
   );
-  return rows.filter((row) => row && row.project !== undefined).map(normalizeChange);
+  return {
+    changes: rows.filter((row) => row && row.project !== undefined).map(normalizeChange),
+    more: stats?.moreChanges === true,
+  };
+}
+
+/**
+ * `queryChangePage` without the page marker, for a caller that asked for as many
+ * as it can use.
+ *
+ * @param {import('./session.js').Session} session
+ * @param {QuerySpec|string} spec
+ * @param {{limit?: number, include?: readonly string[]}} [opts]
+ * @returns {Promise<Change[]>}
+ */
+export async function queryChanges(session, spec, opts = {}) {
+  return (await queryChangePage(session, spec, opts)).changes;
 }
 
 /**

@@ -99,6 +99,7 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     { argv: ['publish', '--stack', '--topic', 'stack-of-three'], log: stackLog, head: c },
     { argv: ['publish', '--squash'], log: squashLog, head: b },
     { argv: ['submit', '200101'], log: '', head: c },
+    { argv: [], log: '', head: c },
     { argv: ['status'], log: '', head: c },
     { argv: ['show', '200101', '200102', '200103', '--comments'], log: '', head: c },
     { argv: ['comments', '200102', '200103'], log: '', head: c },
@@ -124,7 +125,7 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
         runner,
         fetchImpl,
       });
-      const op = argv.join(' ');
+      const op = argv.join(' ') || '(dashboard)';
       assert.equal(code, EXIT.ok, `${op} must run to completion for its calls to count:\n${stderr.text}`);
       for (const call of runner.calls) processes.push({ op, file: call.file, args: call.args });
       for (const call of fetchImpl.calls) {
