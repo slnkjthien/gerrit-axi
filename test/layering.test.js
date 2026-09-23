@@ -187,6 +187,7 @@ test('the core entry point exposes the library API a second binary would import'
     'logout',
     'publishChanges',
     'submitChange',
+    'postChangeMessage',
     'GerritError',
   ]) {
     assert.equal(typeof core[name] !== 'undefined', true, `core must export ${name}`);
@@ -196,6 +197,9 @@ test('the core entry point exposes the library API a second binary would import'
     assert.equal(name in core, false, `core must not export the presentation helper ${name}`);
   }
 });
+
+/** The one module allowed to spell the command that can vote. */
+const MESSAGE_MODULE = path.join(SRC_DIR, 'core', 'message.js');
 
 test('voting is structurally impossible: no voting command or voting path exists anywhere', () => {
   // THE PROPERTY THIS TEST HOLDS. gerrit-axi publishes and submits, and it cannot
@@ -231,10 +235,13 @@ test('voting is structurally impossible: no voting command or voting path exists
   const code = new Map(files.map((file) => [file, stripComments(readFileSync(file, 'utf8'))]));
   const rel = (/** @type {string} */ file) => path.relative(REPO_ROOT, file);
 
-  // No voting vocabulary, in any spelling a caller could reach.
+  // No voting vocabulary, in any spelling a caller could reach. One module is
+  // exempt from the first two patterns: the one that posts a change message
+  // spells the command once, and the test after this one pins what it spells.
   const votingPaths = [
-    [/\bgerrit\b[\s'"`,]*\breview\b/, 'the gerrit review SSH command, as a string or as argv'],
-    [/['"`]review['"`\s]/, 'review as an argv element'],
+    [/\bgerrit\b[\s'"`,]*\breview\b/, 'the gerrit review SSH command, as a string or as argv',
+      MESSAGE_MODULE],
+    [/['"`]review['"`\s]/, 'review as an argv element', MESSAGE_MODULE],
     [/--(?:code-review|verified)\b|--label[\s'"`,=]+['"`]?(?:\$\{|[A-Za-z0-9-]+=)/,
       'a gerrit review scoring flag (--label NAME=VALUE; secret-tool\'s --label=<text> is not one)'],
     [/\/review/, 'a REST path to the review endpoint, where votes are recorded'],
@@ -244,9 +251,35 @@ test('voting is structurally impossible: no voting command or voting path exists
     [/set-topic/, 'gerrit set-topic (a topic is set on the push instead)'],
   ];
   for (const [file, text] of code) {
-    for (const [pattern, what] of votingPaths) {
+    for (const [pattern, what, exempt] of votingPaths) {
+      if (exempt === file) continue;
       assert.equal(/** @type {RegExp} */ (pattern).test(text), false,
         `${rel(file)} contains ${what} (${pattern}). ${WHY}`);
     }
+  }
+});
+
+test('the message module spells gerrit review once, with --message and no other option', () => {
+  // The exemption in the test above is load-bearing only while this holds. The
+  // command that posts a change message is the command that votes, submits,
+  // abandons, restores and rebases, so the argv that names it is pinned to a
+  // literal: destination, the command, --message, the quoted text, the target.
+  // A parameter for anything else, a spread of anything but the destination, or
+  // a second spelling of the command anywhere in the file fails here.
+  const text = stripComments(readFileSync(MESSAGE_MODULE, 'utf8'));
+  assert.equal((text.match(/'review'/g) ?? []).length, 1, 'gerrit review is spelled exactly once');
+  assert.match(text, /export function buildMessageArgs\(conn, change, patchSet, text\) \{/,
+    'the argv builder takes a connection, a change, a patch set and a text, and no options');
+  assert.match(text,
+    /\[\s*\.\.\.buildSshDestination\(conn\),\s*'gerrit',\s*'review',\s*'--message',\s*quoteForGerrit\(body\),\s*`\$\{change\},\$\{patchSet\}`,\s*\]/,
+    'the remote words are a literal: gerrit review --message <quoted text> <change>,<patchSet>');
+
+  // Every option literal in the file, long or short, is --message.
+  const options = [...text.matchAll(/['"`](-{1,2}[a-zA-Z][a-zA-Z-]*)(?:=[^'"`]*)?['"`]/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(options)], ['--message'],
+    `the message module names an option other than --message: ${options.join(' ')}`);
+  for (const flag of ['--code-review', '--verified', '--label', '--submit', '--abandon', '--restore',
+    '--rebase', '--publish', '--move', '--json', '--notify', '--tag', '--project', '--branch']) {
+    assert.equal(text.includes(flag), false, `the message module must not name ${flag}`);
   }
 });

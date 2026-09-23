@@ -128,6 +128,29 @@ function detailFlags(include) {
 }
 
 /**
+ * The client half of every ssh argv: port, batch mode, a connect timeout, then
+ * the `--` marker and the destination. Past that marker ssh parses no option, so
+ * the destination is never one, and every remote word that follows is Gerrit's
+ * to read. Exported for the one other module that runs a Gerrit command over
+ * ssh, `message.js`, which appends its own fixed remote words to this.
+ *
+ * @param {{host: string, port: number, user: string}} conn
+ * @param {{connectTimeoutSeconds?: number}} [opts]
+ * @returns {string[]}
+ */
+export function buildSshDestination(conn, { connectTimeoutSeconds = 10 } = {}) {
+  assertSafeConnection(conn);
+  return [
+    '-p', String(conn.port),
+    '-o', 'BatchMode=yes',
+    '-o', `ConnectTimeout=${connectTimeoutSeconds}`,
+    // Past this marker ssh parses no option, so the destination is never one.
+    '--',
+    `${conn.user}@${conn.host}`,
+  ];
+}
+
+/**
  * Build the argv for `ssh`. Exported so tests can assert on it without running
  * anything. No credential is ever an element of this array -- SSH authenticates
  * with the user's own agent/keys.
@@ -142,18 +165,13 @@ export function buildSshArgs(
   query,
   { limit = 100, connectTimeoutSeconds = 10, include = [] } = {},
 ) {
-  assertSafeConnection(conn);
+  const destination = buildSshDestination(conn, { connectTimeoutSeconds });
   assertSafeQuery(query);
   if (!Number.isInteger(limit) || limit <= 0) {
     throw new TransportError(`invalid limit: ${limit}`, { code: 'UNSAFE_QUERY' });
   }
   return [
-    '-p', String(conn.port),
-    '-o', 'BatchMode=yes',
-    '-o', `ConnectTimeout=${connectTimeoutSeconds}`,
-    // Past this marker ssh parses no option, so the destination is never one.
-    '--',
-    `${conn.user}@${conn.host}`,
+    ...destination,
     'gerrit', 'query',
     '--format=JSON',
     '--current-patch-set',
@@ -206,6 +224,50 @@ export function parseQueryOutput(stdout) {
 }
 
 /**
+ * Spawn `ssh` with a built argv. A runner that cannot spawn ssh at all is the
+ * one failure this turns into an error; an exit status is the caller's to read,
+ * because what a non-zero status means depends on the remote command.
+ *
+ * @param {string[]} args
+ * @param {{runner?: import('./exec.js').Runner, timeoutMs?: number}} [opts]
+ * @returns {Promise<import('./exec.js').RunResult>}
+ */
+export async function runSsh(args, { runner = runCommand, timeoutMs = 60_000 } = {}) {
+  try {
+    return await runner('ssh', args, { timeoutMs });
+  } catch (err) {
+    throw new TransportError('could not run ssh', {
+      code: 'SSH_FAILED',
+      remedy: 'Is the OpenSSH client installed and on PATH?',
+      cause: err,
+    });
+  }
+}
+
+/**
+ * The error for an ssh command that exited non-zero, with the first line of
+ * what it said and the one check that tells a key or host problem from a Gerrit
+ * one.
+ *
+ * @param {{host: string, port: number, user: string}} conn
+ * @param {import('./exec.js').RunResult} result
+ * @returns {TransportError}
+ */
+export function sshFailure(conn, result) {
+  const reason = firstLine(result.stderr);
+  return new TransportError(
+    `ssh to Gerrit failed: ${reason ? JSON.stringify(reason) : `exit ${result.code}`}`,
+    {
+      code: 'SSH_FAILED',
+      remedy: [
+        'Check that your SSH key is registered with Gerrit and that the host is reachable:',
+        `    ssh -p ${conn.port} -- <user>@<host> gerrit version`,
+      ].join('\n'),
+    },
+  );
+}
+
+/**
  * Run `gerrit query` over SSH and return the raw change rows.
  *
  * @param {{host: string, port: number, user: string}} conn
@@ -220,29 +282,8 @@ export async function sshQuery(
   { limit = 100, runner = runCommand, include = [] } = {},
 ) {
   const args = buildSshArgs(conn, query, { limit, include });
-  let result;
-  try {
-    result = await runner('ssh', args, { timeoutMs: 60_000 });
-  } catch (err) {
-    throw new TransportError('could not run ssh', {
-      code: 'SSH_FAILED',
-      remedy: 'Is the OpenSSH client installed and on PATH?',
-      cause: err,
-    });
-  }
-  if (result.code !== 0) {
-    const reason = firstLine(result.stderr);
-    throw new TransportError(
-      `ssh to Gerrit failed: ${reason ? JSON.stringify(reason) : `exit ${result.code}`}`,
-      {
-        code: 'SSH_FAILED',
-        remedy: [
-          'Check that your SSH key is registered with Gerrit and that the host is reachable:',
-          `    ssh -p ${conn.port} -- <user>@<host> gerrit version`,
-        ].join('\n'),
-      },
-    );
-  }
+  const result = await runSsh(args, { runner });
+  if (result.code !== 0) throw sshFailure(conn, result);
   return parseQueryOutput(result.stdout);
 }
 

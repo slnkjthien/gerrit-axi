@@ -28,9 +28,10 @@
  *
  *     const [change] = await queryChangeDetails(session, [184458]);
  *
- * ...and the two writes, which are all there are -- nothing here can vote:
+ * ...and the three writes, which are all there are -- nothing here can vote:
  *
  *     const publication = await publishChanges(session, { shape: 'stack', topic: 'retry' });
+ *     const posted = await postChangeMessage(session, 184458, 'What the fix changed...');
  *     const merged = await submitChange(session, 184458);   // the server may refuse
  */
 
@@ -108,7 +109,10 @@ export {
   assertSafeConnection,
   assertSafeQuery,
   buildSshArgs,
+  buildSshDestination,
   parseQueryOutput,
+  runSsh,
+  sshFailure,
   sshQuery,
 } from './ssh.js';
 
@@ -123,6 +127,8 @@ export {
 } from './publish.js';
 
 export { submitChange } from './submit.js';
+
+export { buildMessageArgs, postChangeMessage, quoteForGerrit } from './message.js';
 
 export { AuthError, ConfigError, GerritError, TransportError } from './errors.js';
 
