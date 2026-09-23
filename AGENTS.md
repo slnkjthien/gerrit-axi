@@ -96,6 +96,13 @@ fails if any of them is broken, which is the intended way to find out.
   command's options and the global ones, before anything is asked of git or the
   server; add an option there and in `USAGE` in `src/axi/main.js`, never at a
   call site.
+- Next-step hints (`help[]`) are spelled only through `src/axi/hints.js`, which
+  carries the call's connection overrides onto every command it names; the key is
+  present only when a line applies. The rules for when a document gets one, and
+  the vote/submit boundary a hint may never cross, are the README's "Next steps";
+  `test/hints.test.js` pins each state. Message and comment bodies are cut to
+  `BODY_PREVIEW_CHARS` in `src/axi/records.js` with `chars`/`truncated` on the
+  row, never a marker in the text.
 
 ## Credential handling
 

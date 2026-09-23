@@ -526,8 +526,20 @@ test('an empty result set keeps the shape rather than printing nothing', async (
     ]),
   });
   assert.equal(code, EXIT.ok);
-  assert.deepEqual(JSON.parse(stdout.text),
-    { ok: true, op: 'status', count: 0, changes: [], labels: [], votes: [] });
+  const document = JSON.parse(stdout.text);
+  assert.deepEqual(document, {
+    ok: true,
+    op: 'status',
+    count: 0,
+    more: false,
+    changes: [],
+    labels: [],
+    votes: [],
+    // An empty attention set says where else to look; test/hints.test.js holds
+    // the hint states.
+    help: document.help,
+  });
+  assert.equal(document.help.length, 2);
 });
 
 test('auth status reports the credential without a change to ask about', async () => {

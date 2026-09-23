@@ -11,6 +11,13 @@
  *
  * The three writes are `publish`, `submit` and `message`, and there is no fourth:
  * nothing here records a vote, writes an inline comment, or sets reviewers.
+ *
+ * A document carries `help[]` -- the next steps, as complete commands -- only
+ * where the next step is not obvious: after a list, after a write, and whenever
+ * something was held back (a page the server cut, a message list capped by
+ * `--messages`, a body cut to its preview). A detail view that answers the
+ * question whole, or a confirmation, carries none. The lines are built by
+ * hints.js and are never spelled here.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -27,6 +34,7 @@ import { postChangeMessage } from '../core/message.js';
 import { publishChanges } from '../core/publish.js';
 import { submitChange } from '../core/submit.js';
 import { changeNumbers, messageCount, positiveInt } from './args.js';
+import { command, invocation, submittableHint, truncationHint } from './hints.js';
 import {
   changeRow,
   commentRows,
@@ -76,7 +84,7 @@ const DASHBOARD_FETCH_LIMIT = 100;
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function opDashboard({ session, args }) {
-  const { positional, flags } = args;
+  const { positional, flags, overrides } = args;
   if (positional.length > 0) {
     throw new UsageError(`dashboard takes no arguments (got: ${positional.join(' ')})`);
   }
@@ -117,7 +125,7 @@ export async function opDashboard({ session, args }) {
     total: distinct.size,
     sections: sections.map(sectionRow),
     entries: sections.flatMap((s) => s.kept.map((change) => entryRow(s.name, change))),
-    help: dashboardHelp(sections, distinct.size),
+    help: dashboardHelp(sections, distinct.size, overrides),
   };
 }
 
@@ -158,14 +166,17 @@ function dashboardSection(name, query, page, rows) {
 /**
  * The next step, named: what to run for what awaits you, where the rest of a
  * truncated section is, and how to start when nothing of yours is open. One
- * line per point at most, and none when nothing applies.
+ * line per point at most, and none when nothing applies. Every command carries
+ * the invocation's connection overrides, so it reaches the same server.
  *
  * @param {DashboardSection[]} sections
  * @param {number} total
+ * @param {import('./args.js').ParsedArgs['overrides']} overrides
  * @returns {string[]}
  */
-function dashboardHelp(sections, total) {
+function dashboardHelp(sections, total, overrides) {
   const by = Object.fromEntries(sections.map((s) => [s.name, s]));
+  const run = (/** @type {Array<string|number>} */ words) => command(words, overrides);
   /** @type {string[]} */
   const help = [];
   if (total === 0) {
@@ -173,29 +184,38 @@ function dashboardHelp(sections, total) {
   } else if (by.your_turn.count === 0) {
     help.push('Nothing awaits your attention.');
   } else {
-    const numbers = by.your_turn.kept.map((change) => change.number).join(' ');
-    help.push(`Run \`gerrit-axi show ${numbers} --comments\` for the full state of what awaits you`);
+    const numbers = by.your_turn.kept.map((change) => change.number);
+    help.push(`Run \`${run(['show', ...numbers, '--comments'])}\` for the full state of what awaits you`);
   }
   for (const s of sections) {
     if (!s.more) continue;
     if (s.serverMore) {
-      help.push(`Run \`gerrit-axi status --query '${s.query}' --limit ${DASHBOARD_FETCH_LIMIT * 10}\``
+      help.push(`Run \`${run(['status', '--query', s.query, '--limit', DASHBOARD_FETCH_LIMIT * 10])}\``
         + ` for more ${s.name} changes (${s.count}+ matched, ${s.shown} shown)`);
     } else {
-      help.push(`Run \`gerrit-axi status --query '${s.query}'\``
+      help.push(`Run \`${run(['status', '--query', s.query])}\``
         + ` for every ${s.name} change (${s.count} matched, ${s.shown} shown)`);
     }
   }
   if (by.wip.count === 0 && by.outgoing.count === 0) {
-    help.push('Run `gerrit-axi publish --stack --topic <t>` or `gerrit-axi publish --squash` to propose the commits on HEAD');
+    help.push(publishHint(overrides));
   }
   return help;
 }
 
 /**
+ * @param {import('./args.js').ParsedArgs['overrides']} overrides
+ * @returns {string}
+ */
+function publishHint(overrides) {
+  return `Run \`${command(['publish', '--stack', '--topic', '<t>'], overrides)}\``
+    + ` or \`${command(['publish', '--squash'], overrides)}\` to propose the commits on HEAD`;
+}
+
+/**
  * `status` -- the list view: the attention set, your own changes, named changes,
  * or a raw Gerrit query. Newest first, matching what the question "what changed"
- * wants.
+ * wants. `more` is the server's word that `--limit` cut the page short.
  *
  * @param {Ctx} ctx
  * @returns {Promise<Record<string, unknown>>}
@@ -207,7 +227,8 @@ export async function opStatus({ session, args }) {
   let spec;
   if (typeof raw === 'string') {
     if (positional.length > 0) {
-      throw new UsageError('--query takes the whole query; drop the positional arguments');
+      throw new UsageError('--query takes the whole query; drop the positional arguments',
+        undefined, [`Run \`${command(['status', '--query', '<query>'], args.overrides)}\``]);
     }
     spec = { kind: 'raw', query: raw };
   } else if (positional.length === 0) {
@@ -219,16 +240,72 @@ export async function opStatus({ session, args }) {
   }
 
   const limit = positiveInt(flags['--limit'], 100, '--limit');
-  const changes = sortByLastUpdatedDesc(await queryChanges(session, spec, { limit }));
+  const page = await queryChangePage(session, spec, { limit });
+  const changes = sortByLastUpdatedDesc(page.changes);
+  const rows = changes.map(changeRow);
 
   return {
     ok: true,
     op: 'status',
     count: changes.length,
-    changes: changes.map(changeRow),
+    more: page.more,
+    changes: rows,
     labels: changes.flatMap(labelRows),
     votes: changes.flatMap(voteRows),
+    ...withHelp(statusHelp(spec, args, rows, page.more, limit)),
   };
+}
+
+/**
+ * After a list: the detail view of it, the write that applies to a change the
+ * server marks ready, the rest of a page the server cut short; after an empty
+ * list, where else to look. A raw query that matched nothing gets no line: the
+ * query is the caller's own, and `count: 0` is its answer.
+ *
+ * @param {import('../core/changes.js').QuerySpec} spec
+ * @param {import('./args.js').ParsedArgs} args
+ * @param {Array<Record<string, string|number|boolean|null>>} rows
+ * @param {boolean} more
+ * @param {number} limit
+ * @returns {string[]}
+ */
+function statusHelp(spec, args, rows, more, limit) {
+  const { overrides } = args;
+  const run = (/** @type {Array<string|number>} */ words) => command(words, overrides);
+  /** @type {string[]} */
+  const help = [];
+  const named = spec.kind === 'changes' ? spec.numbers.map(String) : [];
+  if (rows.length > 0) {
+    help.push(spec.kind === 'changes'
+      ? `Run \`${run(['show', ...named, '--comments'])}\` for the full review state`
+      : `Run \`${run(['show', '<change>...', '--comments'])}\` for the full review state of a listed change`);
+    const ready = submittableHint(rows, overrides);
+    if (ready) help.push(ready);
+  } else if (spec.kind === 'attention') {
+    help.push(`Run \`${run(['status', 'mine'])}\` for your open changes`);
+    help.push(`Run \`${run([])}\` for your whole dashboard`);
+  } else if (spec.kind === 'mine') {
+    help.push(publishHint(overrides));
+  }
+  if (spec.kind === 'changes' && rows.length < named.length) {
+    help.push(`Run \`${run(['show', ...named])}\`; a number the server did not return is listed under missing`);
+  }
+  if (more) {
+    help.push(`Run \`${invocation('status', args, { set: { '--limit': String(limit * 10) } })}\``
+      + ` for more changes (${rows.length}+ matched, ${rows.length} shown)`);
+  }
+  return help;
+}
+
+/**
+ * `help` is present only when there is a line to carry: an empty list would be
+ * a key a consumer has to skip on every document.
+ *
+ * @param {string[]} help
+ * @returns {{help?: string[]}}
+ */
+function withHelp(help) {
+  return help.length > 0 ? { help } : {};
 }
 
 /**
@@ -243,10 +320,17 @@ export async function opStatus({ session, args }) {
  */
 export async function opShow({ session, args }) {
   const numbers = changeNumbers(args.positional);
-  if (numbers.length === 0) throw new UsageError('show needs at least one change number');
+  if (numbers.length === 0) {
+    throw new UsageError('show needs at least one change number', undefined,
+      [`Run \`${command(['show', '<change>...', '[--messages <n|all>]', '[--comments]'], args.overrides)}\``]);
+  }
 
   const keep = messageCount(args.flags['--messages']);
   const wantComments = args.flags['--comments'] === true;
+  const full = args.flags['--full'] === true;
+  if (full && keep === 0 && !wantComments) {
+    throw new UsageError('--full needs --messages or --comments; it lifts the cut on their bodies');
+  }
   // The cover messages cost the server work per row, so they are only asked for
   // when they will be emitted. The stack is always asked for: a stale parent
   // revision is the thing a stack watch exists to notice.
@@ -273,13 +357,26 @@ export async function opShow({ session, args }) {
     depends_on: changes.flatMap((change) => dependencyRows(change, 'dependsOn')),
     needed_by: changes.flatMap((change) => dependencyRows(change, 'neededBy')),
   };
+  /** @type {string[]} */
+  const help = [];
   if (keep > 0) {
-    document.messages = changes.flatMap((change) => messageRows(change, keep));
+    const messages = changes.flatMap((change) => messageRows(change, keep, full));
+    document.messages = messages;
+    // A list capped by --messages is a truncated list, and is always revealed.
+    const capped = changes.filter((change) => change.messages.length > keep);
+    if (capped.length > 0) {
+      const shown = capped.map((change) => `${keep} of ${change.messages.length} shown on ${change.number}`);
+      help.push(`Run \`${invocation('show', args, { set: { '--messages': 'all' } })}\``
+        + ` for every cover message (${shown.join('; ')})`);
+    }
   }
   if (wantComments) {
     document.comments = await gatherComments(session, changes.map((c) => c.number), args.flags);
   }
-  return document;
+  const bodies = [...(document.messages ?? []), ...(document.comments ?? [])];
+  const cut = truncationHint('show', args, /** @type {any[]} */ (bodies));
+  if (cut) help.push(cut);
+  return { ...document, ...withHelp(help) };
 }
 
 /**
@@ -292,9 +389,29 @@ export async function opShow({ session, args }) {
  */
 export async function opComments({ session, args }) {
   const numbers = changeNumbers(args.positional);
-  if (numbers.length === 0) throw new UsageError('comments needs at least one change number');
+  if (numbers.length === 0) {
+    throw new UsageError('comments needs at least one change number', undefined,
+      [`Run \`${command(['comments', '<change>...', '[--bots | --humans]'], args.overrides)}\``]);
+  }
   const rows = await gatherComments(session, numbers, args.flags);
-  return { ok: true, op: 'comments', count: rows.length, comments: rows };
+
+  // After the list: the cover messages, which are the half of the review this
+  // table cannot carry. After an empty filtered list: the filter itself.
+  const filtered = args.flags['--bots'] === true || args.flags['--humans'] === true;
+  const named = numbers.map(String);
+  /** @type {string[]} */
+  const help = [];
+  if (rows.length === 0 && filtered) {
+    help.push(`Run \`${command(['comments', ...named], args.overrides)}\` for the comments the filter excluded`);
+  } else {
+    help.push(`Run \`${command(['show', ...named, '--messages', 'all'], args.overrides)}\` for the cover messages`
+      + (rows.length === 0
+        ? '; a review written there carries no inline comment'
+        : ' and where each change stands'));
+  }
+  const cut = truncationHint('comments', args, /** @type {any[]} */ (rows));
+  if (cut) help.push(cut);
+  return { ok: true, op: 'comments', count: rows.length, comments: rows, help };
 }
 
 /**
@@ -310,12 +427,13 @@ async function gatherComments(session, numbers, flags) {
   const botsOnly = flags['--bots'] === true;
   const humansOnly = flags['--humans'] === true;
   if (botsOnly && humansOnly) throw new UsageError('--bots and --humans exclude each other');
+  const full = flags['--full'] === true;
 
   /** @type {Array<Record<string, unknown>>} */
   const rows = [];
   for (const number of numbers) {
     const comments = await listComments(session, number, { botsOnly, humansOnly });
-    rows.push(...commentRows(number, comments));
+    rows.push(...commentRows(number, comments, full));
   }
   return rows;
 }
@@ -334,6 +452,10 @@ export async function opAuth({ session, args }) {
     throw new UsageError(`auth ${sub} is not part of this tier; use 'gerrit auth ${sub}'`);
   }
   const status = await authStatus(session);
+  const help = status.stored && status.verified ? [] : [
+    'Run `gerrit auth login` to store a token that works, then'
+      + ` \`${command(['auth', 'status'], args.overrides)}\` to confirm`,
+  ];
   return {
     ok: true,
     op: 'auth status',
@@ -346,6 +468,7 @@ export async function opAuth({ session, args }) {
     problem: status.problem?.code ?? null,
     host: session.config.host,
     user: session.config.user,
+    ...withHelp(help),
   };
 }
 
@@ -360,18 +483,22 @@ export async function opAuth({ session, args }) {
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function opPublish({ session, args }) {
-  const { positional, flags } = args;
+  const { positional, flags, overrides } = args;
+  const shapes = [publishHint(overrides)];
   if (positional.length > 0) {
-    throw new UsageError(`publish takes no arguments; it publishes HEAD (got: ${positional.join(' ')})`);
+    throw new UsageError(`publish takes no arguments; it publishes HEAD (got: ${positional.join(' ')})`,
+      undefined, shapes);
   }
   const stack = flags['--stack'] === true;
   const squash = flags['--squash'] === true;
-  if (stack === squash) throw new UsageError('publish needs exactly one of --stack or --squash');
+  if (stack === squash) throw new UsageError('publish needs exactly one of --stack or --squash', undefined, shapes);
   const topic = typeof flags['--topic'] === 'string' ? flags['--topic'] : null;
   // A stack is addressed as a unit through its topic; without one it is only a
   // chain of changes that happen to depend on each other.
-  if (stack && topic === null) throw new UsageError('publish --stack needs --topic <name>');
-  if (squash && topic !== null) throw new UsageError('publish --squash takes no --topic; a topic names a stack');
+  if (stack && topic === null) throw new UsageError('publish --stack needs --topic <name>', undefined, shapes);
+  if (squash && topic !== null) {
+    throw new UsageError('publish --squash takes no --topic; a topic names a stack', undefined, shapes);
+  }
   const branch = typeof flags['--branch'] === 'string' ? flags['--branch'] : null;
 
   const publication = await publishChanges(session, {
@@ -382,6 +509,7 @@ export async function opPublish({ session, args }) {
   const changes = publication.published
     .map((entry) => entry.change)
     .filter((change) => change !== null);
+  const rows = changes.map(changeRow);
   return {
     ok: true,
     op: 'publish',
@@ -395,8 +523,36 @@ export async function opPublish({ session, args }) {
     rewritten_from: publication.rewrittenFrom,
     count: publication.published.length,
     published: publication.published.map(publishedRow),
-    changes: changes.map(changeRow),
+    changes: rows,
+    help: publishHelp(publication, rows, overrides),
   };
+}
+
+/**
+ * After a publish: the changes to follow; the stack as the server lists it; on
+ * a squash that made a patch set, the message that says what it changed, since
+ * the squash carries the oldest commit's message; and `submit` only for a
+ * change the server already marks submittable, which a fresh push rarely is.
+ *
+ * @param {import('../core/publish.js').Publication} publication
+ * @param {Array<Record<string, string|number|boolean|null>>} rows
+ * @param {import('./args.js').ParsedArgs['overrides']} overrides
+ * @returns {string[]}
+ */
+function publishHelp(publication, rows, overrides) {
+  const run = (/** @type {Array<string|number>} */ words) => command(words, overrides);
+  const numbers = publication.published.map((entry) => entry.change?.number ?? '<change>');
+  const help = [`Run \`${run(['show', ...numbers, '--comments'])}\` to follow the review`];
+  if (publication.shape === 'stack' && publication.topic !== null) {
+    help.push(`Run \`${run(['status', '--query', `topic:${publication.topic}`])}\` for the stack as the server lists it`);
+  }
+  if (publication.shape === 'squash' && publication.newPatchSets) {
+    help.push(`Run \`${run(['message', numbers[0], '--file', '<path>'])}\` to say what this patch set changed,`
+      + " since the squash carries the oldest commit's message");
+  }
+  const ready = submittableHint(rows, overrides);
+  if (ready) help.push(ready);
+  return help;
 }
 
 /**
@@ -414,9 +570,15 @@ export async function opPublish({ session, args }) {
 export async function opSubmit({ session, args }) {
   const numbers = changeNumbers(args.positional);
   if (numbers.length !== 1) {
-    throw new UsageError('submit takes exactly one change; the server submits what must go with it');
+    throw new UsageError('submit takes exactly one change; the server submits what must go with it',
+      undefined, [`Run \`${command(['submit', '<change>'], args.overrides)}\``]);
   }
   const submitted = await submitChange(session, numbers[0]);
+  // A merge is a confirmation and carries no hint. Anything else the server
+  // reported is worth reading back.
+  const help = submitted.status === 'MERGED' ? [] : [
+    `Run \`${command(['show', submitted.number], args.overrides)}\` to see whether it has merged`,
+  ];
   return {
     ok: true,
     op: 'submit',
@@ -427,6 +589,7 @@ export async function opSubmit({ session, args }) {
     branch: submitted.branch,
     topic: submitted.topic,
     subject: submitted.subject,
+    ...withHelp(help),
   };
 }
 
@@ -445,14 +608,15 @@ export async function opSubmit({ session, args }) {
  */
 export async function opMessage({ session, args, stdin }) {
   const numbers = changeNumbers(args.positional);
-  if (numbers.length !== 1) throw new UsageError('message takes exactly one change number');
+  const shape = [`Run \`${command(['message', '<change>', '--file', '<path>'], args.overrides)}\`, or pipe the text on stdin`];
+  if (numbers.length !== 1) throw new UsageError('message takes exactly one change number', undefined, shape);
   const file = typeof args.flags['--file'] === 'string' ? args.flags['--file'] : null;
 
-  const text = file !== null ? await readMessageFile(file) : await readMessageStdin(stdin);
+  const text = file !== null ? await readMessageFile(file, shape) : await readMessageStdin(stdin, shape);
   if (text.trim() === '') {
     throw new UsageError(file !== null
       ? `the message file is empty: ${file}`
-      : 'the message on stdin is empty; pipe the text in, or name a file with --file <path>');
+      : 'the message on stdin is empty; pipe the text in, or name a file with --file <path>', undefined, shape);
   }
 
   const posted = await postChangeMessage(session, numbers[0], text);
@@ -467,19 +631,24 @@ export async function opMessage({ session, args, stdin }) {
     subject: posted.subject,
     url: posted.url,
     chars: posted.chars,
+    help: [
+      `Run \`${command(['show', posted.change, '--messages', 'all'], args.overrides)}\``
+        + ' for the conversation including this message',
+    ],
   };
 }
 
 /**
  * @param {string} file
+ * @param {string[]} help  the corrected call
  * @returns {Promise<string>}
  */
-async function readMessageFile(file) {
+async function readMessageFile(file, help) {
   try {
     return await readFile(file, 'utf8');
   } catch (err) {
     const reason = /** @type {any} */ (err)?.code === 'ENOENT' ? 'no such file' : 'cannot read';
-    throw new UsageError(`${reason}: ${file}`);
+    throw new UsageError(`${reason}: ${file}`, undefined, help);
   }
 }
 
@@ -488,11 +657,12 @@ async function readMessageFile(file) {
  * a message and press ^D is not what an agent binary should do.
  *
  * @param {NodeJS.ReadStream|undefined} stdin
+ * @param {string[]} help  the corrected call
  * @returns {Promise<string>}
  */
-async function readMessageStdin(stdin) {
+async function readMessageStdin(stdin, help) {
   if (!stdin || stdin.isTTY) {
-    throw new UsageError('message needs its text on stdin or in --file <path>');
+    throw new UsageError('message needs its text on stdin or in --file <path>', undefined, help);
   }
   let text = '';
   stdin.setEncoding?.('utf8');

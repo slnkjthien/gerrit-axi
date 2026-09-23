@@ -25,6 +25,7 @@ import {
   opStatus,
   opSubmit,
 } from './commands.js';
+import { COMMAND_TEMPLATES, errorHelp } from './hints.js';
 import { UsageError, errorRecord, serialize } from './output.js';
 
 /** Same codes the human CLI uses, so a caller can drive either interchangeably. */
@@ -54,6 +55,12 @@ before anything is asked of git or the server (exit 2), and the record's remedy
 lists the options that command does take, naming the nearest when a misspelling
 is close.
 
+A record ends with help[] -- the next steps, as complete commands carrying this
+call's --host and its siblings -- only where the next step is not obvious: after
+a list, after publish, submit or message, and whenever something was held back.
+A detail view or a confirmation carries none. A failure's help[] is the command
+that fixes or diagnoses it, when there is one.
+
 commands, and the options each one takes:
   dashboard                   the home view above, by name
       --rows <n>              rows shown per section (default 10, max 100)
@@ -66,8 +73,13 @@ commands, and the options each one takes:
       --messages <n|all>      also emit that many cover messages (default 0)
       --comments              also emit the inline comments
       --bots | --humans       with --comments: only / never machine-generated
+      --full                  whole message and comment bodies; without it a
+                              body over 1000 characters is cut to its first
+                              1000, its row says chars (the total) and
+                              truncated: true, and help[] names this option
   comments <change>...        inline review comments on every change named
       --bots | --humans       only / never machine-generated
+      --full                  whole comment bodies, as for show
   auth status                 whether the stored credential still works
   publish --stack --topic <t> every commit on HEAD since it left the server's
                               branch becomes its own change, under topic <t>
@@ -143,13 +155,16 @@ export async function main(argv, io = {}) {
   } = io;
 
   const [first, ...tail] = argv;
+  /** @type {import('./args.js').ParsedArgs|undefined} */
+  let args;
   const out = (/** @type {string} */ text) => { stdout.write(`${text}\n`); };
   const fail = (/** @type {unknown} */ error, /** @type {string|undefined} */ op) => {
     // Every record goes to stdout, an error record included, in the format the
     // caller asked for: the exit code and `ok` say which kind arrived, and stderr
     // carries nothing, so a caller that reads one stream has read everything.
     const json = argv.includes('--json');
-    out(serialize(errorRecord(error, { op }), { json }));
+    const help = errorHelp(error, { op, argv, args });
+    out(serialize(errorRecord(error, { op, help }), { json }));
     return exitFor(error);
   };
 
@@ -172,10 +187,15 @@ export async function main(argv, io = {}) {
   const op = /** @type {keyof typeof OPS|undefined} */ (
     Object.hasOwn(OPS, command) ? command : undefined
   );
-  if (!op) return fail(new UsageError(`unknown command: ${command}`), undefined);
+  if (!op) {
+    // The fix is one of the commands, so they are the help: a list to run, not
+    // a pointer at --help.
+    const help = [`Run one of: ${COMMAND_TEMPLATES.map((t) => `\`${t}\``).join(', ')}`];
+    return fail(new UsageError(`unknown command: ${command}`, undefined, help), undefined);
+  }
 
   try {
-    const args = parseArgs(rest, op);
+    args = parseArgs(rest, op);
     const [stray] = args.positional;
     if (!named && stray !== undefined && Object.hasOwn(OPS, stray)) {
       const at = argv.indexOf(stray);
