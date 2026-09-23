@@ -24,18 +24,40 @@ const REMOTE = 'ssh://ada@gerrit.example.com:29418/acme/apps/widget-console\n';
 const REPO_ROOT = path.join(SRC_DIR, '..');
 
 /**
+ * A server's answers to the dashboard's four queries, keyed by the prefix that
+ * tells them apart: ada has one change awaiting her, owns the three-change stack
+ * (one of them WIP), was asked to review two others, and is CCed on nothing.
+ */
+const DASHBOARD = {
+  'attention:self': 'query-detail.txt',
+  'owner:self': 'query-stack.txt',
+  'reviewer:self': 'query-incoming.txt',
+  'cc:self': 'query-empty.txt',
+};
+
+/**
  * Drive the binary's entry point the way a caller would, with every process edge
- * supplied: no network, no subprocess, no credential store.
+ * supplied: no network, no subprocess, no credential store. `ssh` is one fixture
+ * for every query, or a table of fixtures keyed by the prefix of the query each
+ * one answers.
  *
  * @param {string[]} argv
- * @param {{ssh?: string, fetchRoutes?: any[]}} [opts]
+ * @param {{ssh?: string|Record<string, string>, fetchRoutes?: any[]}} [opts]
  */
 async function run(argv, { ssh = 'query-stack.txt', fetchRoutes = [] } = {}) {
   const stdout = captureStream();
   const stderr = captureStream();
+  const answer = typeof ssh === 'string'
+    ? () => ({ stdout: fixture(ssh) })
+    : (/** @type {string} */ _file, /** @type {string[]} */ args) => {
+      const query = args.at(-2) ?? ''; // the last element is the limit
+      const prefix = Object.keys(ssh).find((p) => query.startsWith(p));
+      assert.ok(prefix, `no fixture answers the query: ${query}`);
+      return { stdout: fixture(ssh[prefix]) };
+    };
   const runner = fakeRunner([
     { match: (f, a) => f === 'git' && a.includes('remote'), result: { stdout: REMOTE } },
-    { match: (f) => f === 'ssh', result: { stdout: fixture(ssh) } },
+    { match: (f) => f === 'ssh', result: answer },
   ]);
   const code = await main(argv, {
     cwd: '/some/checkout',
@@ -310,6 +332,10 @@ test('a failure is a typed record on stderr, never prose on stdout', async () =>
     { argv: ['show'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['show', '1', '--nonsense'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['status', '--limit', 'lots'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['dashboard', '200101'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['--rows', 'lots'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['--rows', '0'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['dashboard', '--rows', '101'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['comments', '1', '--bots', '--humans'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['auth', 'login'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     // The shape is named, never guessed, and a stack needs the topic that makes it one.
@@ -473,17 +499,185 @@ test('help and version need no config, no credential and no network', async () =
     runner: fakeRunner([]),
   }), EXIT.ok);
   assert.match(stdout.text, /^gerrit-axi \d+\.\d+\.\d+$/m);
+});
 
-  // No argument at all is a usage error, and still prints the help.
-  const bare = captureStream();
-  assert.equal(await main([], {
+test('a bare invocation is the dashboard, not usage', async () => {
+  const { code, out, err, runner } = await run([], { ssh: DASHBOARD });
+  assert.equal(code, EXIT.ok);
+  assert.equal(err, '');
+  assert.equal(out.includes('usage:'), false, 'usage is for a caller who asked for it');
+
+  // Four round trips, one per question the server answers in a single query,
+  // in the order the sections are shown. The owner query serves two sections.
+  const queries = runner.calls.filter((c) => c.file === 'ssh').map((c) => c.args.at(-2));
+  assert.deepEqual(queries, [
+    'attention:self status:open',
+    'owner:self status:open',
+    'reviewer:self NOT owner:self NOT is:wip status:open',
+    'cc:self NOT is:wip status:open',
+  ]);
+  // Over ssh the query is words of a remote command line, and Gerrit's parser
+  // reads a word that begins with "-" as an option of `gerrit query`. A live
+  // server refused `-owner:self` that way, so negation is spelled NOT.
+  for (const query of queries) {
+    assert.ok(query.split(' ').every((word) => !word.startsWith('-')),
+      `a query word beginning with "-" is read by Gerrit as an option: ${query}`);
+  }
+
+  assert.match(out, /^op: dashboard$/m);
+  assert.match(out, /^user: ada$/m);
+  assert.match(out, /^total: 6$/m);
+  const sections = table(out, 'sections');
+  assert.deepEqual(sections.map((s) => [s.section, s.count, s.shown, s.more]), [
+    ['your_turn', '1', '1', 'false'],
+    ['wip', '1', '1', 'false'],
+    ['outgoing', '2', '2', 'false'],
+    ['incoming', '2', '2', 'false'],
+    ['cced', '0', '0', 'false'],
+  ]);
+  // Each section's query reproduces it on its own, ready for `status --query`.
+  assert.equal(sections[1].query, 'owner:self status:open is:wip');
+  assert.equal(sections[2].query, 'owner:self status:open NOT is:wip');
+
+  const entries = table(out, 'entries');
+  assert.deepEqual(entries.map((e) => [e.section, e.change]), [
+    ['your_turn', '184458'],
+    ['wip', '200103'],
+    ['outgoing', '200102'],
+    ['outgoing', '200101'],
+    ['incoming', '300202'],
+    ['incoming', '300201'],
+  ], 'wip and outgoing are split from one owner query; newest first within a section');
+  assert.deepEqual(entries[4], {
+    section: 'incoming',
+    change: '300202',
+    subject: 'Let the queue reader name its own thread',
+    owner: 'alan',
+    submit: 'OK',
+  });
+  assert.match(out, /^help\[1\]: Run `gerrit-axi show 184458 --comments` for the full state of what awaits you$/m);
+});
+
+test('the dashboard answers to its name and to a bare option alike', async () => {
+  const bare = await run([], { ssh: DASHBOARD });
+  const named = await run(['dashboard'], { ssh: DASHBOARD });
+  assert.equal(named.out, bare.out);
+
+  // An option with no command is still the dashboard, with the option applied.
+  const overridden = await run(['--host', 'review.example.org'], { ssh: DASHBOARD });
+  assert.equal(overridden.code, EXIT.ok);
+  assert.match(overridden.out, /^host: review\.example\.org$/m);
+  const ssh = overridden.runner.calls.find((c) => c.file === 'ssh');
+  assert.ok(ssh?.args.includes('ada@review.example.org'));
+});
+
+test('a change on two sections appears under each, and is counted once', async () => {
+  // The attention set now answers with the stack itself, so ada's own changes
+  // are both her turn and her outgoing reviews, as they would be on Gerrit's
+  // dashboard. `total` is distinct changes; the pair (section, change) is the key.
+  const { out } = await run([], { ssh: { ...DASHBOARD, 'attention:self': 'query-stack.txt' } });
+  assert.match(out, /^total: 5$/m);
+  const entries = table(out, 'entries');
+  assert.deepEqual(entries.filter((e) => e.change === '200102').map((e) => e.section),
+    ['your_turn', 'outgoing']);
+  assert.deepEqual(entries.filter((e) => e.section === 'your_turn').map((e) => e.change),
+    ['200103', '200102', '200101']);
+  assert.match(out, /^help\[1\]: Run `gerrit-axi show 200103 200102 200101 --comments`/m);
+});
+
+test('--rows caps every section, and the size hint names the query for the rest', async () => {
+  const { out } = await run(['--rows', '1'], { ssh: DASHBOARD });
+  assert.deepEqual(table(out, 'sections').map((s) => [s.section, s.count, s.shown, s.more]), [
+    ['your_turn', '1', '1', 'false'],
+    ['wip', '1', '1', 'false'],
+    ['outgoing', '2', '1', 'true'],
+    ['incoming', '2', '1', 'true'],
+    ['cced', '0', '0', 'false'],
+  ], 'count is what matched; shown is what this call emitted');
+  assert.deepEqual(table(out, 'entries').map((e) => e.change),
+    ['184458', '200103', '200102', '300202'], 'the newest row of each section survives');
+  assert.match(out,
+    /Run `gerrit-axi status --query 'owner:self status:open NOT is:wip'` for every outgoing change \(2 matched, 1 shown\)/);
+  assert.match(out, /for every incoming change \(2 matched, 1 shown\)/);
+  assert.equal(/for every (?:your_turn|wip|cced) change/.test(out), false,
+    'a section shown whole gets no such hint');
+});
+
+test('a page the server cut short is flagged, and its count is marked as a floor', async () => {
+  const { out } = await run([], { ssh: { ...DASHBOARD, 'cc:self': 'query-more.txt' } });
+  const cced = table(out, 'sections').find((s) => s.section === 'cced');
+  assert.deepEqual([cced?.count, cced?.shown, cced?.more], ['1', '1', 'true']);
+  assert.match(out, /for every cced change \(1\+ matched, 1 shown\)/);
+});
+
+test('an empty section is stated, never omitted', async () => {
+  // Nothing awaiting you is a fact about your day, so its row stays and says so.
+  const quiet = await run([], { ssh: { ...DASHBOARD, 'attention:self': 'query-empty.txt' } });
+  assert.equal(quiet.code, EXIT.ok);
+  assert.deepEqual(table(quiet.out, 'sections')[0], {
+    section: 'your_turn', count: '0', shown: '0', more: 'false', query: 'attention:self status:open',
+  });
+  assert.match(quiet.out, /^help\[1\]: Nothing awaits your attention\.$/m);
+
+  // Nothing at all: every section present at zero, an empty table, and a way to
+  // start. Under --json so the help lines can be compared exactly.
+  const empty = Object.fromEntries(Object.keys(DASHBOARD).map((k) => [k, 'query-empty.txt']));
+  const none = await run(['--json'], { ssh: empty });
+  assert.equal(none.code, EXIT.ok);
+  const document = JSON.parse(none.out);
+  assert.equal(document.total, 0);
+  assert.deepEqual(document.sections.map((/** @type {any} */ s) => [s.section, s.count, s.shown, s.more]), [
+    ['your_turn', 0, 0, false],
+    ['wip', 0, 0, false],
+    ['outgoing', 0, 0, false],
+    ['incoming', 0, 0, false],
+    ['cced', 0, 0, false],
+  ]);
+  assert.deepEqual(document.entries, []);
+  assert.deepEqual(document.help, [
+    'No open change involves you.',
+    'Run `gerrit-axi publish --stack --topic <t>` or `gerrit-axi publish --squash` to propose the commits on HEAD',
+  ]);
+  const toon = await run([], { ssh: empty });
+  assert.match(toon.out, /^entries: \[\]$/m);
+});
+
+test('the dashboard under --json carries the same keys, typed', async () => {
+  const { code, out } = await run(['--json'], { ssh: DASHBOARD });
+  assert.equal(code, EXIT.ok);
+  const document = JSON.parse(out);
+  assert.deepEqual(Object.keys(document),
+    ['ok', 'op', 'user', 'host', 'total', 'sections', 'entries', 'help']);
+  assert.equal(document.op, 'dashboard');
+  assert.equal(document.total, 6);
+  assert.deepEqual(document.sections[2], {
+    section: 'outgoing', count: 2, shown: 2, more: false, query: 'owner:self status:open NOT is:wip',
+  });
+  assert.equal(document.entries[0].change, 184458, 'a change number is a number');
+  assert.equal(document.entries[3].submit, 'OK');
+});
+
+test('with no host to resolve, the dashboard is an error record, not usage', async () => {
+  const stdout = captureStream();
+  const stderr = captureStream();
+  const code = await main([], {
     cwd: '/nowhere',
-    env: {},
-    stdout: bare.stream,
-    stderr: captureStream().stream,
-    runner: fakeRunner([]),
-  }), EXIT.usage);
-  assert.match(bare.text, /^gerrit-axi - /);
+    env: ENV,
+    stdout: stdout.stream,
+    stderr: stderr.stream,
+    runner: fakeRunner([
+      { match: (f) => f === 'git', result: { code: 128, stderr: 'fatal: not a git repository' } },
+    ]),
+    fetchImpl: fakeFetch([]),
+  });
+  assert.equal(code, EXIT.config);
+  assert.equal(stdout.text, '', 'nothing on stdout: not usage, not a partial dashboard');
+  assert.match(stderr.text, /^ok: false$/m);
+  assert.match(stderr.text, /^op: dashboard$/m);
+  assert.match(stderr.text, /^code: HOST_UNRESOLVED$/m);
+  assert.match(stderr.text, /^kind: config$/m);
+  assert.match(stderr.text, /^remedy: /m);
+  assert.equal(stderr.text.includes('usage:'), false);
 });
 
 test('the top-level help lists every option every subcommand takes', async () => {

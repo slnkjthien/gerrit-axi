@@ -15,7 +15,15 @@ import { readFile } from 'node:fs/promises';
 import { AuthError, ConfigError, GerritError, TransportError } from '../core/errors.js';
 import { createSession } from '../core/session.js';
 import { parseArgs } from './args.js';
-import { opAuth, opComments, opPublish, opShow, opStatus, opSubmit } from './commands.js';
+import {
+  opAuth,
+  opComments,
+  opDashboard,
+  opPublish,
+  opShow,
+  opStatus,
+  opSubmit,
+} from './commands.js';
 import { UsageError, errorRecord, serialize } from './output.js';
 
 /** Same codes the human CLI uses, so a caller can drive either interchangeably. */
@@ -28,15 +36,22 @@ export const EXIT = {
   transport: 5,
 };
 
-const USAGE = `gerrit-axi - Gerrit for agents: review state as records, publish, and submit
+const USAGE = `gerrit-axi - Gerrit for agents: your dashboard, review state as records, publish, and submit
 
-usage: gerrit-axi <command> [options]
+usage: gerrit-axi [<command>] [options]
+
+With no command it prints your dashboard: the changes awaiting your attention,
+your work in progress, your outgoing reviews, the reviews you were asked for and
+the changes you are CCed on, grouped as Gerrit's own dashboard groups them, with
+a count per section and the next step to run.
 
 Records go to stdout: TOON by default, strict JSON with --json. A failure writes
 a typed error record to stderr, leaves stdout empty, and exits non-zero, so a
 caller never has to tell data from prose.
 
 commands, and the options each one takes:
+  dashboard                   the home view above, by name
+      --rows <n>              rows shown per section (default 10, max 100)
   status                      changes awaiting your attention ("your turn")
   status mine                 your open changes
   status <change>...          specific change numbers
@@ -89,6 +104,7 @@ whether a change may be submitted is decided by the server alone.`;
 
 /** Command-specific flags. Everything here is also listed in USAGE above. */
 const FLAG_SPECS = {
+  dashboard: { withValue: new Set(['--rows']), boolean: new Set() },
   status: { withValue: new Set(['--query', '--limit']), boolean: new Set() },
   show: {
     withValue: new Set(['--messages']),
@@ -104,6 +120,7 @@ const FLAG_SPECS = {
 };
 
 const OPS = {
+  dashboard: opDashboard,
   status: opStatus,
   show: opShow,
   comments: opComments,
@@ -129,7 +146,7 @@ export async function main(argv, io = {}) {
     fetchImpl,
   } = io;
 
-  const [command, ...rest] = argv;
+  const [first, ...tail] = argv;
   const out = (/** @type {string} */ text) => { stdout.write(`${text}\n`); };
   const fail = (/** @type {unknown} */ error, /** @type {string|undefined} */ op) => {
     // Records only ever go to stdout. An error record goes to stderr, always.
@@ -139,14 +156,20 @@ export async function main(argv, io = {}) {
   };
 
   // Help and version must work with no config, no credential and no network.
-  if (!command || command === '--help' || command === '-h' || command === 'help') {
+  if (first === '--help' || first === '-h' || first === 'help') {
     out(USAGE);
-    return command ? EXIT.ok : EXIT.usage;
+    return EXIT.ok;
   }
-  if (command === '--version' || command === '-V' || command === 'version') {
+  if (first === '--version' || first === '-V' || first === 'version') {
     out(await packageVersion());
     return EXIT.ok;
   }
+
+  // No command is the home view, and so is a bare option (`gerrit-axi --json`):
+  // usage is for a caller who asked for it, not for one who asked for nothing.
+  const named = first !== undefined && !first.startsWith('-');
+  const command = named ? first : 'dashboard';
+  const rest = named ? tail : argv;
 
   const op = /** @type {keyof typeof OPS|undefined} */ (
     Object.hasOwn(OPS, command) ? command : undefined

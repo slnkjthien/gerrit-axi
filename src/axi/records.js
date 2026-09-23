@@ -69,6 +69,47 @@ export function changeRow(change) {
 }
 
 /**
+ * One row per dashboard section, present whether or not anything matched: a
+ * section with nothing in it is a fact about the caller's day, not a missing
+ * table. `count` is how many changes the section holds (exact up to the fetch
+ * limit), `shown` how many `entries` rows carry it, and `more` whether either
+ * this tier or the server held some back. `query` is the Gerrit query that
+ * reproduces the section on its own, ready for `status --query`.
+ *
+ * @param {{name: string, query: string, count: number, shown: number, more: boolean}} section
+ * @returns {Record<string, string|number|boolean|null>}
+ */
+export function sectionRow(section) {
+  return {
+    section: section.name,
+    count: section.count,
+    shown: section.shown,
+    more: section.more,
+    query: section.query,
+  };
+}
+
+/**
+ * One dashboard row per (section, change). A change on two sections appears
+ * under each, as it does on Gerrit's own dashboard, and the pair is the join
+ * key. Three content fields only: the dashboard says what is there, and `show`
+ * says where it stands. `submit` is the server's overall verdict, unchanged.
+ *
+ * @param {string} section
+ * @param {import('../core/changes.js').Change} change
+ * @returns {Record<string, string|number|boolean|null>}
+ */
+export function entryRow(section, change) {
+  return {
+    section,
+    change: change.number,
+    subject: change.subject,
+    owner: who(change.owner),
+    submit: change.readiness.status,
+  };
+}
+
+/**
  * One row per label the server mentioned in its submit records, including labels
  * nobody has voted on. `by` is the account the server credited the verdict to,
  * which is not always the account whose vote you would guess.

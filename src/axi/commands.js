@@ -14,7 +14,12 @@
  */
 
 import { authStatus } from '../core/auth.js';
-import { queryChanges, sortByLastUpdatedDesc } from '../core/changes.js';
+import {
+  buildQuery,
+  queryChangePage,
+  queryChanges,
+  sortByLastUpdatedDesc,
+} from '../core/changes.js';
 import { listComments } from '../core/comments.js';
 import { publishChanges } from '../core/publish.js';
 import { submitChange } from '../core/submit.js';
@@ -23,9 +28,11 @@ import {
   changeRow,
   commentRows,
   dependencyRows,
+  entryRow,
   labelRows,
   messageRows,
   publishedRow,
+  sectionRow,
   voteRows,
 } from './records.js';
 import { UsageError } from './output.js';
@@ -35,6 +42,146 @@ import { UsageError } from './output.js';
  * @property {import('../core/session.js').Session} session
  * @property {import('./args.js').ParsedArgs} args
  */
+
+/** Rows the dashboard shows per section unless `--rows` says otherwise. */
+const DASHBOARD_ROWS = 10;
+
+/**
+ * How many changes each dashboard query fetches. Also the ceiling on `--rows`:
+ * past it a section's `count` would be the fetch limit rather than the truth.
+ */
+const DASHBOARD_FETCH_LIMIT = 100;
+
+/**
+ * `dashboard` -- the home view, and what a bare `gerrit-axi` prints: the
+ * caller's open changes grouped the way Gerrit's own dashboard groups them.
+ * Your turn, work in progress, outgoing, incoming, CCed on.
+ *
+ * Four round trips, one per question the server can answer in a single
+ * `gerrit query`: a query row carries neither the attention set nor whether the
+ * caller is a reviewer or a CC, so the sections cannot be split locally from one
+ * OR'd query. The owner query is the exception -- `wip` is on the row -- so work
+ * in progress and outgoing reviews come from the same call. The four run one at
+ * a time, as `comments` does, rather than opening four sockets at once against
+ * someone's review server.
+ *
+ * Every section row is always present. Nothing awaiting you is a fact worth a
+ * row, not a table to omit.
+ *
+ * @param {Ctx} ctx
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function opDashboard({ session, args }) {
+  const { positional, flags } = args;
+  if (positional.length > 0) {
+    throw new UsageError(`dashboard takes no arguments (got: ${positional.join(' ')})`);
+  }
+  const rows = positiveInt(flags['--rows'], DASHBOARD_ROWS, '--rows');
+  if (rows < 1 || rows > DASHBOARD_FETCH_LIMIT) {
+    throw new UsageError(`--rows must be between 1 and ${DASHBOARD_FETCH_LIMIT}, got: ${rows}`);
+  }
+
+  const fetch = (/** @type {import('../core/changes.js').QuerySpec} */ spec) => (
+    queryChangePage(session, spec, { limit: DASHBOARD_FETCH_LIMIT })
+  );
+  const attention = await fetch({ kind: 'attention' });
+  const own = await fetch({ kind: 'mine' });
+  const incoming = await fetch({ kind: 'incoming' });
+  const cced = await fetch({ kind: 'cced' });
+
+  const mine = buildQuery({ kind: 'mine' });
+  const sections = [
+    dashboardSection('your_turn', buildQuery({ kind: 'attention' }), attention, rows),
+    dashboardSection('wip', `${mine} is:wip`, {
+      changes: own.changes.filter((change) => change.wip),
+      more: own.more,
+    }, rows),
+    dashboardSection('outgoing', `${mine} NOT is:wip`, {
+      changes: own.changes.filter((change) => !change.wip),
+      more: own.more,
+    }, rows),
+    dashboardSection('incoming', buildQuery({ kind: 'incoming' }), incoming, rows),
+    dashboardSection('cced', buildQuery({ kind: 'cced' }), cced, rows),
+  ];
+  const distinct = new Set(sections.flatMap((s) => s.changes.map((change) => change.number)));
+
+  return {
+    ok: true,
+    op: 'dashboard',
+    user: session.config.user,
+    host: session.config.host,
+    total: distinct.size,
+    sections: sections.map(sectionRow),
+    entries: sections.flatMap((s) => s.kept.map((change) => entryRow(s.name, change))),
+    help: dashboardHelp(sections, distinct.size),
+  };
+}
+
+/**
+ * @typedef {Object} DashboardSection
+ * @property {string} name
+ * @property {string} query        reproduces the section on its own
+ * @property {import('../core/changes.js').Change[]} changes  all matched, newest first
+ * @property {import('../core/changes.js').Change[]} kept     the rows shown
+ * @property {number} count
+ * @property {number} shown
+ * @property {boolean} more        this tier or the server held rows back
+ * @property {boolean} serverMore  the server did, so `count` is a floor
+ */
+
+/**
+ * @param {string} name
+ * @param {string} query
+ * @param {import('../core/changes.js').ChangePage} page
+ * @param {number} rows
+ * @returns {DashboardSection}
+ */
+function dashboardSection(name, query, page, rows) {
+  const changes = sortByLastUpdatedDesc(page.changes);
+  const kept = changes.slice(0, rows);
+  return {
+    name,
+    query,
+    changes,
+    kept,
+    count: changes.length,
+    shown: kept.length,
+    more: page.more || kept.length < changes.length,
+    serverMore: page.more,
+  };
+}
+
+/**
+ * The next step, named: what to run for what awaits you, where the rest of a
+ * truncated section is, and how to start when nothing of yours is open. One
+ * line per point at most, and none when nothing applies.
+ *
+ * @param {DashboardSection[]} sections
+ * @param {number} total
+ * @returns {string[]}
+ */
+function dashboardHelp(sections, total) {
+  const by = Object.fromEntries(sections.map((s) => [s.name, s]));
+  /** @type {string[]} */
+  const help = [];
+  if (total === 0) {
+    help.push('No open change involves you.');
+  } else if (by.your_turn.count === 0) {
+    help.push('Nothing awaits your attention.');
+  } else {
+    const numbers = by.your_turn.kept.map((change) => change.number).join(' ');
+    help.push(`Run \`gerrit-axi show ${numbers} --comments\` for the full state of what awaits you`);
+  }
+  for (const s of sections) {
+    if (!s.more) continue;
+    const matched = `${s.count}${s.serverMore ? '+' : ''} matched, ${s.shown} shown`;
+    help.push(`Run \`gerrit-axi status --query '${s.query}'\` for every ${s.name} change (${matched})`);
+  }
+  if (by.wip.count === 0 && by.outgoing.count === 0) {
+    help.push('Run `gerrit-axi publish --stack --topic <t>` or `gerrit-axi publish --squash` to propose the commits on HEAD');
+  }
+  return help;
+}
 
 /**
  * `status` -- the list view: the attention set, your own changes, named changes,

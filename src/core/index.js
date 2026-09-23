@@ -69,6 +69,7 @@ export {
   deriveVotes,
   normalizeChange,
   queryChangeDetails,
+  queryChangePage,
   queryChanges,
   sortByLastUpdatedDesc,
 } from './changes.js';

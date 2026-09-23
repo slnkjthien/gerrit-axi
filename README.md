@@ -160,6 +160,11 @@ transport, same readiness oracle, same three-tier configuration, same exit
 codes — a different output contract.
 
 ```text
+gerrit-axi                             your dashboard: your turn, work in progress,
+                                       outgoing, incoming, CCed on
+gerrit-axi dashboard                   the same, by name
+    --rows <n>                         rows shown per section (default 10, max 100)
+
 gerrit-axi status                      your attention set, as records
 gerrit-axi status mine                 your open changes
 gerrit-axi status <change>...          specific change numbers
@@ -230,7 +235,8 @@ shell script screen-scraping `gerrit`'s table had to do by hand:
 
 - **One invocation, a whole list.** A watch following a nine-change stack makes
   one call and gets nine records. `status` and `show` both send a single
-  `gerrit query`; `comments` needs one REST call per change, because that is what
+  `gerrit query`; the dashboard sends four, one per question the server answers
+  in one query; `comments` needs one REST call per change, because that is what
   the endpoint offers.
 - **Labels are keyed by name, never by column.** Per-change scalars live in
   `changes`; anything per-label lives in `labels` and `votes`, joined on
@@ -248,6 +254,56 @@ shell script screen-scraping `gerrit`'s table had to do by hand:
 `show` asks the server for the cover messages only when `--messages` will emit
 them, because that detail costs work per row. The stack is always asked for: a
 parent revision going stale is what a stack watch exists to notice.
+
+### The dashboard
+
+With no command, `gerrit-axi` prints content rather than usage: your open changes
+grouped the way Gerrit's own dashboard groups them. Usage is for `--help`.
+
+```console
+$ gerrit-axi
+ok: true
+op: dashboard
+user: ada
+host: gerrit.example.com
+total: 6
+sections[5]{section,count,shown,more,query}:
+  your_turn,1,1,false,"attention:self status:open"
+  wip,1,1,false,"owner:self status:open is:wip"
+  outgoing,2,2,false,"owner:self status:open NOT is:wip"
+  incoming,2,2,false,"reviewer:self NOT owner:self NOT is:wip status:open"
+  cced,0,0,false,"cc:self NOT is:wip status:open"
+entries[6]{section,change,subject,owner,submit}:
+  your_turn,184458,Stop the widget from re-entering the queue twice,ada,NOT_READY
+  wip,200103,Wire the retry ceiling to the managed configuration,ada,NOT_READY
+  outgoing,200102,Give the queue reader its own retry ceiling,ada,NOT_READY
+  outgoing,200101,Split the queue reader out of the daemon,ada,OK
+  incoming,300202,Let the queue reader name its own thread,alan,OK
+  incoming,300201,Retire the legacy widget poller,grace,NOT_READY
+help[1]: Run `gerrit-axi show 184458 --comments` for the full state of what awaits you
+```
+
+`sections` is the summary, one row per section whether or not anything matched:
+`count` is how many changes it holds, `shown` how many rows of `entries` carry it,
+and `more` whether any were held back, by the ten-row cap (`--rows` raises it, to
+at most 100) or by the server. `query` is the Gerrit query that reproduces the
+section on its own, ready for `status --query`. `entries` is keyed on
+`(section, change)`: a change that is both your turn and your outgoing review
+appears under each, as it does on Gerrit's dashboard, and `total` counts it once.
+`submit` is the server's verdict, the same field `status` and `show` carry; the
+dashboard says what is there, and `show` says where it stands.
+
+`help` names the next step: the `show` for what awaits you, the `status --query`
+for the rest of a truncated section, the `publish` when nothing of yours is open.
+It is prose for whoever reads the log, not a field to branch on.
+
+It costs four `gerrit query` round trips, run one at a time: a query row carries
+neither the attention set nor whether you are a reviewer or a CC, so the sections
+cannot be split locally from one query. Work in progress and outgoing reviews do
+share a call, since `wip` is on the row.
+
+When no host can be resolved the dashboard fails like every other command, with
+an error record on stderr and nothing on stdout — see [Failures](#failures).
 
 ### Inline comments
 

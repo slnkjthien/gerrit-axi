@@ -68,6 +68,15 @@ fails if any of them is broken, which is the intended way to find out.
   survives a server growing a label. Errors go to stderr as a typed record with
   stdout empty. `gerrit` still has no `--json` and must not grow one: a request
   for machine-readable output is a request for `gerrit-axi`.
+- A bare `gerrit-axi`, or one given only options, is the dashboard (`opDashboard`
+  in `src/axi/commands.js`), never usage; usage prints only for `--help`, `-h` and
+  `help`, and an unresolvable host is the ordinary `HOST_UNRESOLVED` error record.
+  Its four sequential `gerrit query` calls are the floor, not laziness: a query row
+  carries neither the attention set nor reviewer-vs-CC state, so sections cannot be
+  split locally from one query. `test/axi.test.js` holds the no-host case.
+- Negation in a built query is spelled `NOT`, never a leading `-` (see `buildQuery`
+  in `src/core/changes.js`): over ssh the query is words of a remote command line,
+  and Gerrit reads a word beginning with `-` as an option of `gerrit query`.
 - Every subcommand's options are listed in the top-level `--help` of its own
   binary as well as in its usage string. Options that appear only in the
   subcommand's help have been missed in practice; `test/review-state.test.js` and
