@@ -2,9 +2,12 @@
 
 /**
  * The vote ban, at runtime. Every agent-tier operation -- both publish shapes,
- * submit, and the reads -- is driven end to end through a fake runner and a fake
- * fetch, and every subprocess call and HTTP request it makes is checked for a
- * way to vote.
+ * submit, message, and the reads -- is driven end to end through a fake runner
+ * and a fake fetch, and every subprocess call and HTTP request it makes is
+ * checked for a way to vote. The message operation is the one that runs the
+ * command that can vote, so its argv is pinned element by element: the text it
+ * was given is stuffed with every scoring and state flag, and must leave the
+ * process as one quoted word that is none of them.
  *
  * This is not a duplicate of the vote-ban test in test/layering.test.js; the two
  * catch different failures. That one reads the source and makes a universal
@@ -15,9 +18,11 @@
  */
 
 import assert from 'node:assert/strict';
+import { Readable } from 'node:stream';
 import test from 'node:test';
 
 import { EXIT, main } from '../src/axi/main.js';
+import { quoteForGerrit } from '../src/core/message.js';
 import { Session } from '../src/core/session.js';
 import { captureStream, fakeFetch, fakeRunner, fixture } from './helpers.js';
 
@@ -95,10 +100,16 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
       }),
     },
   ];
+  // A message text that tries every way a word could become a flag or a shell
+  // command; it must arrive as one quoted word, and none of these as an option.
+  const hostile = "Review corrected the KDoc from 0.0 to Double.NaN; it isn't a default.\n"
+    + '--code-review +2 --label Verified=+1 --submit --abandon --restore --rebase --publish\n'
+    + '-s -j -l Verified=+1 `id` $(id) ; echo escaped';
   const operations = [
     { argv: ['publish', '--stack', '--topic', 'stack-of-three'], log: stackLog, head: c },
     { argv: ['publish', '--squash'], log: squashLog, head: b },
     { argv: ['submit', '200101'], log: '', head: c },
+    { argv: ['message', '200101'], log: '', head: c, stdin: hostile },
     { argv: [], log: '', head: c },
     { argv: ['status'], log: '', head: c },
     { argv: ['show', '200101', '200102', '200103', '--comments'], log: '', head: c },
@@ -113,13 +124,14 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   const restored = Session.prototype.token;
   Session.prototype.token = async () => ({ token: 'placeholder-not-a-real-token', backend: 'file', location: null });
   try {
-    for (const { argv, log, head } of operations) {
+    for (const { argv, log, head, stdin } of operations) {
       const runner = repo(log, head);
       const fetchImpl = fakeFetch(fetchRoutes);
       const stderr = captureStream();
       const code = await main(argv, {
         cwd: '/some/checkout',
         env: ENV,
+        stdin: stdin === undefined ? undefined : /** @type {any} */ (Readable.from([stdin])),
         stdout: captureStream().stream,
         stderr: stderr.stream,
         runner,
@@ -139,6 +151,18 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   // The writes did happen, so the checks below are about real traffic.
   assert.ok(processes.some((p) => p.file === 'git' && p.args.includes('push')), 'no push was made');
   assert.ok(requests.some((r) => r.method === 'POST'), 'no submit was made');
+  const posts = processes.filter((p) => p.file === 'ssh' && p.args.includes('review'));
+  assert.equal(posts.length, 1, 'the message was posted exactly once');
+
+  // The one command that can vote leaves the process with these words and no
+  // others: the text is one quoted element, and the target is change,patchset.
+  const [post] = posts;
+  assert.equal(post.op, 'message 200101', 'only the message operation may run gerrit review');
+  const at = post.args.indexOf('gerrit');
+  assert.deepEqual(post.args.slice(at), ['gerrit', 'review', '--message', quoteForGerrit(hostile), '200101,4'],
+    `the message argv must be gerrit review --message <one quoted word> <change>,<patchset>. ${WHY}`);
+  assert.equal(post.args.indexOf('review'), at + 1, 'review appears once, as the subcommand');
+  assert.equal(post.args.lastIndexOf('review'), at + 1, 'review appears once, as the subcommand');
 
   for (const { op, method, path } of requests) {
     assert.doesNotMatch(path, /\/(?:review|votes|reviewers)(?:\/|$)/,
@@ -157,8 +181,14 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     [(/** @type {string} */ t) => /^set-(?:reviewers|topic)$/.test(t), 'a gerrit set-* command'],
   ];
   for (const { op, file, args } of processes.filter((p) => p.file === 'git' || p.file === 'ssh')) {
+    // The message operation is checked element by element above: its subcommand
+    // and its quoted text are exempt here, and every other element is not.
+    const posting = op === 'message 200101' && file === 'ssh';
+    const scanned = posting
+      ? args.filter((arg) => arg !== 'review' && arg !== quoteForGerrit(hostile))
+      : args;
     // An ssh command line can arrive as one argv element, so each is split too.
-    const tokens = args.flatMap((arg) => [arg, ...arg.split(/\s+/)]);
+    const tokens = scanned.flatMap((arg) => [arg, ...arg.split(/\s+/)]);
     for (const [isBanned, what] of banned) {
       const hit = tokens.find(/** @type {(t: string) => boolean} */ (isBanned));
       assert.equal(hit, undefined, `${op} ran ${file} with ${what} (${hit}): ${args.join(' ')}. ${WHY}`);

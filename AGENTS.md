@@ -42,14 +42,21 @@ fails if any of them is broken, which is the intended way to find out.
   `src/core/ssh.js`, so a transport built on the resolved config inherits it; one
   taking a connection from anywhere else must call it itself.
 - Nothing can vote. The only writes are `gerrit-axi publish` (one push to
-  `refs/for/`, built only by `buildPushArgs` in `src/core/publish.js`) and
-  `gerrit-axi submit` (the one POST, in `restSubmit` in `src/core/rest.js`); the
-  human `gerrit` stays read-only. `gerrit review` in any spelling, a REST
-  `/review` or `/votes` path, `set-reviewers`, `set-topic`, and a label option on
-  a push may not appear in the code; the layering test fails if one does. That
-  check reads source text on purpose, an exception to asserting behaviour: a
-  security invariant needs a whole-source claim. `test/vote-ban.test.js` is its
-  runtime complement; keep both. Those two are the only writes by design: add no
+  `refs/for/`, built only by `buildPushArgs` in `src/core/publish.js`),
+  `gerrit-axi submit` (the one POST, in `restSubmit` in `src/core/rest.js`) and
+  `gerrit-axi message` (one `gerrit review --message`, built only by
+  `buildMessageArgs` in `src/core/message.js`); the human `gerrit` stays read-only.
+  `gerrit review` is the command that votes, so it may be spelled in
+  `src/core/message.js` and nowhere else, and there only as the literal argv
+  `gerrit review --message <quoted text> <change>,<patchset>` with no parameter
+  for another option; a REST `/review` or `/votes` path, `set-reviewers`,
+  `set-topic`, and a label option on a push may not appear anywhere. The layering
+  test's whole-source scan fails if any of that changes; it exempts
+  `src/core/message.js` only for spelling the command. That scan reads
+  source text on purpose, an exception to asserting behaviour: a security
+  invariant needs a whole-source claim. `test/message.test.js` and
+  `test/vote-ban.test.js` are its runtime complement and pin the message argv by
+  running it; keep all three. Those three are the only writes by design: add no
   other.
 - `publish` never regenerates a Change-Id: a new one creates a different change
   and orphans the original's review. An existing one is pushed verbatim; a

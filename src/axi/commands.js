@@ -9,9 +9,11 @@
  * following a nine-change stack must not need nine invocations, and `gerrit
  * query` answers about a whole list in one round trip anyway.
  *
- * The two writes are `publish` and `submit`, and there is no third: nothing here
- * records a vote, comments, or sets reviewers.
+ * The three writes are `publish`, `submit` and `message`, and there is no fourth:
+ * nothing here records a vote, writes an inline comment, or sets reviewers.
  */
+
+import { readFile } from 'node:fs/promises';
 
 import { authStatus } from '../core/auth.js';
 import {
@@ -21,6 +23,7 @@ import {
   sortByLastUpdatedDesc,
 } from '../core/changes.js';
 import { listComments } from '../core/comments.js';
+import { postChangeMessage } from '../core/message.js';
 import { publishChanges } from '../core/publish.js';
 import { submitChange } from '../core/submit.js';
 import { changeNumbers, messageCount, positiveInt } from './args.js';
@@ -41,6 +44,7 @@ import { UsageError } from './output.js';
  * @typedef {Object} Ctx
  * @property {import('../core/session.js').Session} session
  * @property {import('./args.js').ParsedArgs} args
+ * @property {NodeJS.ReadStream} [stdin]   where `message` reads its text
  */
 
 /** Rows the dashboard shows per section unless `--rows` says otherwise. */
@@ -424,4 +428,74 @@ export async function opSubmit({ session, args }) {
     topic: submitted.topic,
     subject: submitted.subject,
   };
+}
+
+/**
+ * `message` -- post one change-level message on the current patch set of one
+ * change. The text comes from stdin or `--file`, never from argv: it can be
+ * long, and argv is readable by every process on the machine. An empty text is
+ * refused rather than posted as a blank message.
+ *
+ * This is the write a pipeline uses to say what it changed when a squash left
+ * the original commit message in place. It records no label; the record names
+ * the patch set the message landed on.
+ *
+ * @param {Ctx} ctx
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function opMessage({ session, args, stdin }) {
+  const numbers = changeNumbers(args.positional);
+  if (numbers.length !== 1) throw new UsageError('message takes exactly one change number');
+  const file = typeof args.flags['--file'] === 'string' ? args.flags['--file'] : null;
+
+  const text = file !== null ? await readMessageFile(file) : await readMessageStdin(stdin);
+  if (text.trim() === '') {
+    throw new UsageError(file !== null
+      ? `the message file is empty: ${file}`
+      : 'the message on stdin is empty; pipe the text in, or name a file with --file <path>');
+  }
+
+  const posted = await postChangeMessage(session, numbers[0], text);
+  return {
+    ok: true,
+    op: 'message',
+    change: posted.change,
+    patch_set: posted.patchSet,
+    revision: posted.revision,
+    project: posted.project,
+    branch: posted.branch,
+    subject: posted.subject,
+    url: posted.url,
+    chars: posted.chars,
+  };
+}
+
+/**
+ * @param {string} file
+ * @returns {Promise<string>}
+ */
+async function readMessageFile(file) {
+  try {
+    return await readFile(file, 'utf8');
+  } catch (err) {
+    const reason = /** @type {any} */ (err)?.code === 'ENOENT' ? 'no such file' : 'cannot read';
+    throw new UsageError(`${reason}: ${file}`);
+  }
+}
+
+/**
+ * A terminal on stdin means nothing was piped, and waiting for someone to type
+ * a message and press ^D is not what an agent binary should do.
+ *
+ * @param {NodeJS.ReadStream|undefined} stdin
+ * @returns {Promise<string>}
+ */
+async function readMessageStdin(stdin) {
+  if (!stdin || stdin.isTTY) {
+    throw new UsageError('message needs its text on stdin or in --file <path>');
+  }
+  let text = '';
+  stdin.setEncoding?.('utf8');
+  for await (const chunk of stdin) text += chunk;
+  return text;
 }

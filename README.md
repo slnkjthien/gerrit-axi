@@ -3,24 +3,28 @@
 A Gerrit CLI. It answers the questions a reviewer actually asks — *whose turn is
 it*, *what is blocking this change*, and *where does this one change stand* — and
 prints the review comments, inline and cover, including the machine-generated
-ones. For an agent, it also publishes changes and submits them.
+ones. For an agent, it also publishes changes, posts a change message, and
+submits them.
 
 Two binaries over one library: `gerrit` renders for a person, `gerrit-axi` emits
 records for an agent. They are siblings, not wrappers — see
 [The agent tier](#the-agent-tier).
 
 **It cannot vote.** `gerrit`, for a person, is read-only: every operation is a
-query. `gerrit-axi`, for an agent, adds exactly two writes — `publish`, one push to
-`refs/for/<branch>`, and `submit`, one REST call the server may refuse — and
-nothing else: it never votes, replies, sets reviewers, or abandons. Submitting
-cannot get round the votes, because Gerrit evaluates its submit rules on the
-server and refuses a change they do not support. Voting is what would get round
-them: a tool that can record an approval lets an agent manufacture one and then
-submit against it. So no path to a vote exists, and `npm test` fails if
-`gerrit review`, a REST call to the review endpoint, or a label option on a push
-appears anywhere in the code. Those two are the only writes by design. The
-binding control is the label permissions your server grants the account an agent
-uses; this is defence in depth behind them.
+query. `gerrit-axi`, for an agent, adds exactly three writes — `publish`, one push
+to `refs/for/<branch>`; `message`, one change-level message with no label; and
+`submit`, one REST call the server may refuse — and nothing else: it never votes,
+writes an inline comment, sets reviewers, or abandons. Submitting cannot get round
+the votes, because Gerrit evaluates its submit rules on the server and refuses a
+change they do not support. Voting is what would get round them: a tool that can
+record an approval lets an agent manufacture one and then submit against it. So
+no path to a vote exists, and `npm test` fails if a REST call to the review
+endpoint or a label option on a push appears anywhere in the code, or if
+`gerrit review` — the SSH command that posts a message, and that could vote — is
+spelled anywhere but in the one module that builds it, or there with any option
+but `--message`. Those three are the only writes by design. The binding control
+is the label permissions your server grants the account an agent uses; this is
+defence in depth behind them.
 
 ```console
 $ gerrit status
@@ -186,6 +190,9 @@ gerrit-axi publish --squash            the commits on HEAD become one change
     --branch <b>                       the branch to propose against (default: the server's default)
 
 gerrit-axi submit <change>             ask the server to submit one change
+
+gerrit-axi message <change>            post one change-level message on the current patch set
+    --file <path>                      read the text from a file instead of stdin
 ```
 
 Global options: `--json`, `--host`, `--user`, `--port`, `--project`,
@@ -400,6 +407,40 @@ normally `MERGED`. It takes one change per call because the server already
 decides what goes in with it — the changes it depends on, or the rest of its
 topic where the server submits topics whole — and submits those together or not
 at all.
+
+### Posting a change message
+
+`message <change>` posts one change-level message — the kind `show --messages`
+reads back — on the change's current patch set. It records no label: Gerrit's
+`review` command posts a plain message when it is given a message and no label
+flag, and that is the only way this tool ever runs it. The text is read from
+stdin, or from `--file <path>`, and never from argv, which every process on the
+machine can read and which a pipeline's findings would overflow anyway. An empty
+text is refused rather than posted blank.
+
+This is the write a pipeline uses when a squash has published its fixes as one
+patch set carrying the original commit message, so that what actually changed is
+said somewhere on the change:
+
+```console
+$ gerrit-axi message 200101 --file findings.md
+ok: true
+op: message
+change: 200101
+patch_set: 4
+revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+project: acme/apps/widget-console
+branch: main
+subject: Split the queue reader out of the daemon
+url: "https://gerrit.example.com/c/acme/apps/widget-console/+/200101"
+chars: 68
+```
+
+The change is looked up first, so the message is addressed to the patch set the
+server has and the record names it. A change the server does not return is a
+`NOT_FOUND` error record; a refusal by Gerrit — a closed change, a missing
+permission — is `MESSAGE_REFUSED`, in the server's words. Inline, line-anchored
+comments, replies to threads, and reviewers are not part of this command.
 
 ### Failures
 
@@ -703,6 +744,13 @@ Three channels, each necessary:
   through an allowlist rather than passed through, so that no caller-supplied
   string can become an element of the argv — and so a hundred-row list view never
   pays for a hundred message timelines.
+
+  The same channel carries the one SSH write: `gerrit review --message <text>
+  <change>,<patchset>`, built by `buildMessageArgs` in `src/core/message.js`,
+  which has no parameter for any other option. The text travels as one
+  single-quoted word — the `'\''` spelling that Gerrit's own tokeniser and a
+  POSIX shell both read as literal — so nothing in it can become an option of
+  `gerrit review` or a command on a host that turned out to have a shell.
 - **REST** — `https://<host>/a/...` with Basic auth, for inline comments, which
   SSH cannot reach, and for the one write REST makes: `POST
   /a/changes/<n>/submit`. Every other request is a GET. Gerrit prefixes every REST
@@ -763,9 +811,14 @@ injectable, the real code paths run against them. Covered in particular:
   already published
 - submit as one POST with no query before it, and a refusal carried in the
   server's own words
+- the change message: the argv pinned exactly, a text stuffed with every scoring
+  and state flag arriving as one quoted word through a model of Gerrit's own
+  tokeniser, the text taken from stdin or a file and never from argv, an empty
+  text refused before any round trip, and a refusal carried in the server's words
 - the layering rules, the absence of any hostname literal, and that nothing can
-  vote: no `gerrit review` in any spelling, no REST review or votes path, no label
-  option on a push, no `set-reviewers` or `set-topic`
+  vote: `gerrit review` spelled in one module only and there with `--message` as
+  its only option, no REST review or votes path, no label option on a push, no
+  `set-reviewers` or `set-topic`
 
 The one thing the suite cannot check on a machine without them is the
 `secret-tool` and `gpg` backends against a *real* keyring or GPG key; those are

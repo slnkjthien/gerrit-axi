@@ -19,6 +19,7 @@ import {
   opAuth,
   opComments,
   opDashboard,
+  opMessage,
   opPublish,
   opShow,
   opStatus,
@@ -36,7 +37,7 @@ export const EXIT = {
   transport: 5,
 };
 
-const USAGE = `gerrit-axi - Gerrit for agents: your dashboard, review state as records, publish, and submit
+const USAGE = `gerrit-axi - Gerrit for agents: your dashboard, review state as records, publish, message, and submit
 
 usage: gerrit-axi [<command>] [options]
 
@@ -71,6 +72,10 @@ commands, and the options each one takes:
                               server's default branch)
   submit <change>             ask the server to submit one change; a refusal is
                               reported in the server's own words
+  message <change>            post one change-level message on the change's
+                              current patch set; the text is read from stdin
+      --file <path>           ...or from this file. Never from argv. No label,
+                              no vote: the record names the patch set it landed on
 
 global options:
   --json          strict JSON instead of TOON
@@ -99,8 +104,9 @@ Change-Id is what makes a push a new patch set of the same change. A commit
 without one gets one stamped into its message, and the local branch is rewritten
 to keep it (messages only; the working tree is untouched).
 
-It publishes and submits, and it cannot vote: no command records a label, and
-whether a change may be submitted is decided by the server alone.`;
+It publishes, posts a change message, and submits, and it cannot vote: no command
+records a label, and whether a change may be submitted is decided by the server
+alone.`;
 
 /** Command-specific flags. Everything here is also listed in USAGE above. */
 const FLAG_SPECS = {
@@ -117,6 +123,7 @@ const FLAG_SPECS = {
     boolean: new Set(['--stack', '--squash']),
   },
   submit: { withValue: new Set(), boolean: new Set() },
+  message: { withValue: new Set(['--file']), boolean: new Set() },
 };
 
 const OPS = {
@@ -127,12 +134,13 @@ const OPS = {
   auth: opAuth,
   publish: opPublish,
   submit: opSubmit,
+  message: opMessage,
 };
 
 /**
  * @param {string[]} argv          argv without node and script
- * @param {{cwd?: string, env?: NodeJS.ProcessEnv, stdout?: NodeJS.WriteStream,
- *          stderr?: NodeJS.WriteStream,
+ * @param {{cwd?: string, env?: NodeJS.ProcessEnv, stdin?: NodeJS.ReadStream,
+ *          stdout?: NodeJS.WriteStream, stderr?: NodeJS.WriteStream,
  *          runner?: import('../core/exec.js').Runner, fetchImpl?: typeof fetch}} [io]
  * @returns {Promise<number>} exit code
  */
@@ -140,6 +148,7 @@ export async function main(argv, io = {}) {
   const {
     cwd = process.cwd(),
     env = process.env,
+    stdin = process.stdin,
     stdout = process.stdout,
     stderr = process.stderr,
     runner,
@@ -199,7 +208,7 @@ export async function main(argv, io = {}) {
       runner,
       fetchImpl,
     });
-    out(serialize(await OPS[op]({ session, args }), { json: args.json }));
+    out(serialize(await OPS[op]({ session, args, stdin }), { json: args.json }));
     return EXIT.ok;
   } catch (error) {
     return fail(error, op);
