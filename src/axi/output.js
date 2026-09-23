@@ -19,7 +19,7 @@ import { encode } from './toon.js';
 
 /**
  * Bad argv. Raised by args.js and main.js, reported like any other typed failure.
- * `remedy` is what to run instead -- the valid options or commands -- so the
+ * `remedy` is what to run instead -- the valid options -- so the
  * caller corrects in one turn rather than after a `--help`.
  */
 export class UsageError extends Error {

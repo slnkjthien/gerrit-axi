@@ -821,7 +821,7 @@ injectable, the real code paths run against them. Covered in particular:
   returning one record per change, a label the server has grown arriving as a row
   with no header change, the inline-comment path attributed per change, `--json`
   carrying the same fields, a failure landing on stdout as a typed record
-  with stderr empty, and an unknown option or command refused before any call
+  with stderr empty, and an unknown option refused before any call
   with the valid ones listed in the record
 - the TOON encoder's quoting and escaping, so a consumer can always tell a string
   from a number, a null, or a delimiter
