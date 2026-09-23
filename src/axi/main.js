@@ -47,8 +47,12 @@ the changes you are CCed on, grouped as Gerrit's own dashboard groups them, with
 a count per section and the next step to run.
 
 Records go to stdout: TOON by default, strict JSON with --json. A failure writes
-a typed error record to stderr, leaves stdout empty, and exits non-zero, so a
-caller never has to tell data from prose.
+a typed error record to stdout in that same format, with ok: false, writes
+nothing to stderr, and exits non-zero, so a caller reads one stream and the
+exit code says what it holds. An option a command does not take is refused
+before anything is asked of git or the server (exit 2), and the record's remedy
+lists the options that command does take, naming the nearest when a misspelling
+is close.
 
 commands, and the options each one takes:
   dashboard                   the home view above, by name
@@ -108,24 +112,7 @@ It publishes, posts a change message, and submits, and it cannot vote: no comman
 records a label, and whether a change may be submitted is decided by the server
 alone.`;
 
-/** Command-specific flags. Everything here is also listed in USAGE above. */
-const FLAG_SPECS = {
-  dashboard: { withValue: new Set(['--rows']), boolean: new Set() },
-  status: { withValue: new Set(['--query', '--limit']), boolean: new Set() },
-  show: {
-    withValue: new Set(['--messages']),
-    boolean: new Set(['--comments', '--bots', '--humans']),
-  },
-  comments: { withValue: new Set(), boolean: new Set(['--bots', '--humans']) },
-  auth: { withValue: new Set(), boolean: new Set() },
-  publish: {
-    withValue: new Set(['--topic', '--branch']),
-    boolean: new Set(['--stack', '--squash']),
-  },
-  submit: { withValue: new Set(), boolean: new Set() },
-  message: { withValue: new Set(['--file']), boolean: new Set() },
-};
-
+/** Each command's options are `COMMAND_OPTIONS` in args.js; USAGE above lists them too. */
 const OPS = {
   dashboard: opDashboard,
   status: opStatus,
@@ -142,6 +129,7 @@ const OPS = {
  * @param {{cwd?: string, env?: NodeJS.ProcessEnv, stdin?: NodeJS.ReadStream,
  *          stdout?: NodeJS.WriteStream, stderr?: NodeJS.WriteStream,
  *          runner?: import('../core/exec.js').Runner, fetchImpl?: typeof fetch}} [io]
+ *          `stderr` is accepted and never written: a failure is a record on stdout.
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io = {}) {
@@ -150,7 +138,6 @@ export async function main(argv, io = {}) {
     env = process.env,
     stdin = process.stdin,
     stdout = process.stdout,
-    stderr = process.stderr,
     runner,
     fetchImpl,
   } = io;
@@ -158,9 +145,11 @@ export async function main(argv, io = {}) {
   const [first, ...tail] = argv;
   const out = (/** @type {string} */ text) => { stdout.write(`${text}\n`); };
   const fail = (/** @type {unknown} */ error, /** @type {string|undefined} */ op) => {
-    // Records only ever go to stdout. An error record goes to stderr, always.
+    // Every record goes to stdout, an error record included, in the format the
+    // caller asked for: the exit code and `ok` say which kind arrived, and stderr
+    // carries nothing, so a caller that reads one stream has read everything.
     const json = argv.includes('--json');
-    stderr.write(`${serialize(errorRecord(error, { op }), { json })}\n`);
+    out(serialize(errorRecord(error, { op }), { json }));
     return exitFor(error);
   };
 
@@ -186,7 +175,7 @@ export async function main(argv, io = {}) {
   if (!op) return fail(new UsageError(`unknown command: ${command}`), undefined);
 
   try {
-    const args = parseArgs(rest, FLAG_SPECS[op]);
+    const args = parseArgs(rest, op);
     const [stray] = args.positional;
     if (!named && stray !== undefined && Object.hasOwn(OPS, stray)) {
       const at = argv.indexOf(stray);

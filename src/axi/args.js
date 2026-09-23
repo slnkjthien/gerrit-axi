@@ -8,7 +8,8 @@
  * because nothing here is coloured, and there is a `--json` because machine
  * output is what this binary is for. An unknown option is an error rather than a
  * positional, so a caller that misspells a flag hears about it instead of getting
- * a silently different query.
+ * a silently different query -- and the error names the command's options, so the
+ * caller's next call is the right one rather than a `--help`.
  */
 
 import { UsageError } from './output.js';
@@ -16,6 +17,27 @@ import { UsageError } from './output.js';
 /** Applies to every subcommand; overrides every config tier. */
 const GLOBAL_WITH_VALUE = new Set(['--host', '--user', '--port', '--project', '--rest-base']);
 const GLOBAL_BOOLEAN = new Set(['--json', '--help', '-h', '--version', '-V']);
+
+/** The global options as an unknown-option record lists them: long forms only. */
+const GLOBAL_OPTIONS = ['--json', '--host', '--user', '--port', '--project', '--rest-base', '--help', '--version'];
+
+/**
+ * Every command's own options, the one catalogue: the parser rejects by it, the
+ * unknown-option record lists from it, and test/axi.test.js checks that the
+ * top-level help names all of it. Add an option here, and in USAGE in main.js.
+ *
+ * @type {Record<string, {withValue: readonly string[], boolean: readonly string[]}>}
+ */
+export const COMMAND_OPTIONS = {
+  dashboard: { withValue: ['--rows'], boolean: [] },
+  status: { withValue: ['--query', '--limit'], boolean: [] },
+  show: { withValue: ['--messages'], boolean: ['--comments', '--bots', '--humans'] },
+  comments: { withValue: [], boolean: ['--bots', '--humans'] },
+  auth: { withValue: [], boolean: [] },
+  publish: { withValue: ['--topic', '--branch'], boolean: ['--stack', '--squash'] },
+  submit: { withValue: [], boolean: [] },
+  message: { withValue: ['--file'], boolean: [] },
+};
 
 /**
  * @typedef {Object} ParsedArgs
@@ -29,12 +51,13 @@ const GLOBAL_BOOLEAN = new Set(['--json', '--help', '-h', '--version', '-V']);
 
 /**
  * @param {string[]} argv
- * @param {{withValue?: Set<string>, boolean?: Set<string>}} [spec]
+ * @param {keyof typeof COMMAND_OPTIONS} command  whose options, besides the global ones, are known
  * @returns {ParsedArgs}
  */
-export function parseArgs(argv, spec = {}) {
-  const withValue = new Set([...GLOBAL_WITH_VALUE, ...(spec.withValue ?? [])]);
-  const booleans = new Set([...GLOBAL_BOOLEAN, ...(spec.boolean ?? [])]);
+export function parseArgs(argv, command) {
+  const own = COMMAND_OPTIONS[command];
+  const withValue = new Set([...GLOBAL_WITH_VALUE, ...own.withValue]);
+  const booleans = new Set([...GLOBAL_BOOLEAN, ...own.boolean]);
 
   /** @type {string[]} */
   const positional = [];
@@ -56,7 +79,8 @@ export function parseArgs(argv, spec = {}) {
     const eq = arg.indexOf('=');
     if (eq > 2) {
       const name = arg.slice(0, eq);
-      if (!withValue.has(name)) throw new UsageError(`${name} does not take a value`);
+      if (booleans.has(name)) throw new UsageError(`${name} does not take a value`);
+      if (!withValue.has(name)) throw unknownOption(name, command);
       flags[name] = arg.slice(eq + 1);
       continue;
     }
@@ -73,7 +97,7 @@ export function parseArgs(argv, spec = {}) {
       flags[arg] = true;
       continue;
     }
-    throw new UsageError(`unknown option: ${arg}`);
+    throw unknownOption(arg, command);
   }
 
   return {
@@ -90,6 +114,79 @@ export function parseArgs(argv, spec = {}) {
     help: flags['--help'] === true || flags['-h'] === true,
     version: flags['--version'] === true || flags['-V'] === true,
   };
+}
+
+/**
+ * The unknown-option error, self-correcting in one turn: it names the command and
+ * the option, and its remedy lists every option the command does take, so the
+ * caller's next move is the corrected call rather than a `--help` round trip.
+ * A misspelling close to a valid option is pointed at that option.
+ *
+ * @param {string} arg
+ * @param {keyof typeof COMMAND_OPTIONS} command
+ * @returns {UsageError}
+ */
+function unknownOption(arg, command) {
+  const own = [...COMMAND_OPTIONS[command].withValue, ...COMMAND_OPTIONS[command].boolean];
+  const hints = [];
+  const near = nearest(arg, [...own, ...GLOBAL_OPTIONS]);
+  if (near) hints.push(`Did you mean ${near}?`);
+  hints.push(own.length > 0
+    ? `Options for ${command}: ${own.join(', ')}.`
+    : `${command} takes no options of its own.`);
+  hints.push(`Global options: ${GLOBAL_OPTIONS.join(', ')}.`);
+  return new UsageError(`unknown option for ${command}: ${arg}`, hints.join(' '));
+}
+
+/**
+ * The candidate a typo is most likely a typo of, or undefined when none is close
+ * enough to name without guessing: within two edits (a transposition counting as
+ * one), and never a word so short that two edits would reach most candidates.
+ *
+ * @param {string} word
+ * @param {readonly string[]} candidates
+ * @returns {string|undefined}
+ */
+export function nearest(word, candidates) {
+  const limit = word.length >= 6 ? 2 : 1;
+  let best;
+  let bestDistance = limit + 1;
+  for (const candidate of candidates) {
+    if (candidate === word) continue;
+    const d = editDistance(word, candidate);
+    if (d < bestDistance) {
+      best = candidate;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
+/**
+ * Optimal string alignment distance: insertions, deletions, substitutions and
+ * adjacent transpositions, each costing one.
+ *
+ * @param {string} a
+ * @param {string} b
+ * @returns {number}
+ */
+function editDistance(a, b) {
+  const rows = Array.from({ length: a.length + 1 }, (_, i) => {
+    const row = new Array(b.length + 1).fill(0);
+    row[0] = i;
+    return row;
+  });
+  for (let j = 0; j <= b.length; j += 1) rows[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      rows[i][j] = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost);
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        rows[i][j] = Math.min(rows[i][j], rows[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return rows[a.length][b.length];
 }
 
 /**

@@ -72,9 +72,10 @@ fails if any of them is broken, which is the intended way to find out.
   sibling of `src/cli/`, not a wrapper — it must never import a renderer, parse a
   table, or re-derive readiness. Its records are flat tables joined on
   `(change, label)`, never one nested object per change, because that is what
-  survives a server growing a label. Errors go to stderr as a typed record with
-  stdout empty. `gerrit` still has no `--json` and must not grow one: a request
-  for machine-readable output is a request for `gerrit-axi`.
+  survives a server growing a label. Errors go to stdout as a typed record with
+  `ok: false` in the format the caller asked for, exit code non-zero, stderr
+  empty (AXI principle 6). `gerrit` still has no `--json` and must not grow one:
+  a request for machine-readable output is a request for `gerrit-axi`.
 - A bare `gerrit-axi`, or one given only options, is the dashboard (`opDashboard`
   in `src/axi/commands.js`), never usage; usage prints only for `--help`, `-h` and
   `help`, and an unresolvable host is the ordinary `HOST_UNRESOLVED` error record.
@@ -88,6 +89,13 @@ fails if any of them is broken, which is the intended way to find out.
   binary as well as in its usage string. Options that appear only in the
   subcommand's help have been missed in practice; `test/review-state.test.js` and
   `test/axi.test.js` check the top-level help mentions them.
+- `gerrit-axi`'s options have one catalogue, `COMMAND_OPTIONS` in
+  `src/axi/args.js`: the parser rejects by it, the unknown-option record lists
+  from it, and the help-coverage test reads it. An option a command does not take
+  is refused by name with a `BAD_USAGE` record whose `remedy` lists that
+  command's options and the global ones, before anything is asked of git or the
+  server; add an option there and in `USAGE` in `src/axi/main.js`, never at a
+  call site.
 
 ## Credential handling
 

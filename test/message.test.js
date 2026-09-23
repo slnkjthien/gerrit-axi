@@ -226,7 +226,7 @@ test('the text is never taken from argv, and nothing is posted when there is non
       { argv: ['message'], opts: { stdin: 'text' }, error: /exactly one change/ },
       { argv: ['message', '200101', '200102'], opts: { stdin: 'text' }, error: /exactly one change/ },
       { argv: ['message', '200101', 'Looks fine'], opts: { stdin: 'text' }, error: /not a change number/ },
-      { argv: ['message', '200101', '--message', 'x'], opts: { stdin: 'text' }, error: /unknown option: --message/ },
+      { argv: ['message', '200101', '--message', 'x'], opts: { stdin: 'text' }, error: /unknown option for message: --message/ },
       { argv: ['message', '200101'], opts: { stdin: '' }, error: /stdin is empty/ },
       { argv: ['message', '200101'], opts: { stdin: '  \n\n' }, error: /stdin is empty/ },
       { argv: ['message', '200101'], opts: { tty: true }, error: /stdin or in --file/ },
@@ -235,11 +235,11 @@ test('the text is never taken from argv, and nothing is posted when there is non
     ];
     for (const { argv, opts, error } of cases) {
       const { code, out, err, runner } = await run(argv, opts);
-      assert.equal(code, EXIT.usage, `${argv.join(' ')}:\n${err}`);
-      assert.equal(out, '', 'stdout stays empty on a failure');
-      assert.match(err, /^code: BAD_USAGE$/m);
-      assert.match(err, /^kind: usage$/m);
-      assert.match(err, error, argv.join(' '));
+      assert.equal(code, EXIT.usage, `${argv.join(' ')}:\n${out}`);
+      assert.equal(err, '', 'stderr stays empty on a failure');
+      assert.match(out, /^code: BAD_USAGE$/m);
+      assert.match(out, /^kind: usage$/m);
+      assert.match(out, error, argv.join(' '));
       assert.equal(runner.calls.filter((call) => call.file === 'ssh').length, 0,
         `${argv.join(' ')} must reach no server`);
     }
@@ -253,8 +253,8 @@ test('a change the server does not return is NOT_FOUND, and nothing is posted', 
     stdin: 'text', query: 'query-empty.txt',
   });
   assert.equal(code, EXIT.transport);
-  assert.equal(out, '');
-  const record = JSON.parse(err);
+  assert.equal(err, '');
+  const record = JSON.parse(out);
   assert.deepEqual(
     { ok: record.ok, op: record.op, code: record.code, kind: record.kind },
     { ok: false, op: 'message', code: 'NOT_FOUND', kind: 'transport' },
@@ -268,8 +268,8 @@ test('a refusal by Gerrit is an error record carrying the server\'s own words', 
     stdin: 'text', post: { code: 1, stderr: refusal },
   });
   assert.equal(code, EXIT.transport);
-  assert.equal(out, '');
-  const record = JSON.parse(err);
+  assert.equal(err, '');
+  const record = JSON.parse(out);
   assert.deepEqual(
     { ok: record.ok, op: record.op, code: record.code, kind: record.kind },
     { ok: false, op: 'message', code: 'MESSAGE_REFUSED', kind: 'transport' },
@@ -278,11 +278,11 @@ test('a refusal by Gerrit is an error record carrying the server\'s own words', 
 });
 
 test('ssh failing to connect on the post is SSH_FAILED with the usual remedy', async () => {
-  const { code, err } = await run(['message', '200101', '--json'], {
+  const { code, out } = await run(['message', '200101', '--json'], {
     stdin: 'text', post: { code: 255, stderr: 'ssh: connect to host gerrit.example.com port 29418: Connection refused' },
   });
   assert.equal(code, EXIT.transport);
-  const record = JSON.parse(err);
+  const record = JSON.parse(out);
   assert.equal(record.code, 'SSH_FAILED');
   assert.match(record.remedy, /gerrit version/);
 });

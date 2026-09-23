@@ -7,23 +7,33 @@
  * carry the same keys, so a consumer that switches format does not have to
  * relearn the field names.
  *
- * Data goes to stdout; a failure goes to stderr as a typed record and nothing
- * goes to stdout at all. That is the whole point of the split -- a consumer that
- * reads stdout can parse it or fail, never half-parse a sentence of prose, and
- * the exit code says which happened before it reads a byte.
+ * Everything goes to stdout, a failure included, as a typed record with `ok`
+ * false in the same format as the data: a consumer reads one stream, parses one
+ * document, and branches on `ok` and the exit code, never on a sentence of prose.
+ * stderr carries nothing, so a caller that captures stdout has the reason a call
+ * failed rather than an empty string.
  */
 
 import { AuthError, ConfigError, GerritError, TransportError } from '../core/errors.js';
 import { encode } from './toon.js';
 
-/** Bad argv. Raised by args.js, reported like any other typed failure. */
+/**
+ * Bad argv. Raised by args.js and main.js, reported like any other typed failure.
+ * `remedy` is what to run instead -- the valid options -- so the
+ * caller corrects in one turn rather than after a `--help`.
+ */
 export class UsageError extends Error {
-  /** @param {string} message */
-  constructor(message) {
+  /**
+   * @param {string} message
+   * @param {string} [remedy]
+   */
+  constructor(message, remedy) {
     super(message);
     this.name = 'UsageError';
     /** @type {string} */
     this.code = 'BAD_USAGE';
+    /** @type {string|undefined} */
+    this.remedy = remedy;
   }
 }
 
@@ -39,8 +49,8 @@ export function serialize(document, { json = false } = {}) {
 /**
  * The error record. `code` is the raiser's machine-readable code, `kind` is the
  * class of failure the exit code was chosen from, and `remedy` appears only when
- * core supplied one -- it is a hint for a human reading the log, never a field to
- * branch on.
+ * the raiser supplied one -- core for a server-side failure, the parser for a
+ * usage one. It is a hint for whoever reads the log, never a field to branch on.
  *
  * @param {unknown} error
  * @param {{op?: string}} [context]
@@ -56,7 +66,9 @@ export function errorRecord(error, { op } = {}) {
     code: typeof code === 'string' ? code : 'INTERNAL',
     kind: kindOf(error),
   };
-  if (error instanceof GerritError && error.remedy) record.remedy = error.remedy;
+  if ((error instanceof GerritError || error instanceof UsageError) && error.remedy) {
+    record.remedy = error.remedy;
+  }
   return record;
 }
 
