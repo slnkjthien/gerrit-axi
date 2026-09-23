@@ -390,6 +390,20 @@ test('a failure the caller can fix with a flag gets that call, carrying its own 
   assert.deepEqual(bare.document.help, ['Run `gerrit-axi --host <host>`']);
 });
 
+test('a rejected query is answered with a corrected one only when the caller wrote the query', async () => {
+  const rejected = '{"type":"error","message":"Unsupported operator: nosuchoperator:x"}\n';
+  const raw = await runJson(['status', '--query', 'nosuchoperator:x'], { sshText: rejected });
+  assert.equal(raw.document.code, 'GERRIT_ERROR');
+  assert.deepEqual(raw.document.help, [
+    'Run `gerrit-axi status --query <query>` with a query Gerrit accepts; spell negation NOT, never a leading -',
+  ]);
+
+  // A bare status builds its own query; the caller has nothing to rewrite.
+  const bare = await runJson(['status'], { sshText: rejected });
+  assert.equal(bare.document.code, 'GERRIT_ERROR');
+  assert.equal('help' in bare.document, false);
+});
+
 test('a 404 and a refused message point at show, which tells gone from failed', withToken(async () => {
   const missing = await runJson(['comments', '200103', '--rest-base', 'https://review.example.org'], {
     fetchRoutes: [{ path: /comments$/, status: 404, body: 'Not found' }],

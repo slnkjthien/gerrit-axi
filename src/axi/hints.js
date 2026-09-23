@@ -185,7 +185,7 @@ export function errorHelp(error, { op, argv, args }) {
     case 'HTTP_ERROR':
       return /redirect/.test(message) ? [`Run \`${again} --rest-base https://<host>\``] : [];
     case 'GERRIT_ERROR':
-      return op === 'status'
+      return op === 'status' && typeof args?.flags['--query'] === 'string'
         ? [`Run \`${command(['status', '--query', '<query>'], overrides)}\``
           + ' with a query Gerrit accepts; spell negation NOT, never a leading -']
         : [];
