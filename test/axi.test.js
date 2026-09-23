@@ -607,7 +607,20 @@ test('a page the server cut short is flagged, and its count is marked as a floor
   const { out } = await run([], { ssh: { ...DASHBOARD, 'cc:self': 'query-more.txt' } });
   const cced = table(out, 'sections').find((s) => s.section === 'cced');
   assert.deepEqual([cced?.count, cced?.shown, cced?.more], ['1', '1', 'true']);
-  assert.match(out, /for every cced change \(1\+ matched, 1 shown\)/);
+  // The total is unknown, so the hint claims more rather than every, and raises
+  // the limit past the one this dashboard fetched with.
+  assert.match(out,
+    /Run `gerrit-axi status --query 'cc:self NOT is:wip status:open' --limit 1000` for more cced changes \(1\+ matched, 1 shown\)/);
+  assert.equal(/for every cced change/.test(out), false);
+});
+
+test('an option before a command is named as the problem, not read as the dashboard', async () => {
+  const { code, out, err } = await run(['--json', 'status', 'mine'], { ssh: DASHBOARD });
+  assert.equal(code, EXIT.usage);
+  assert.equal(out, '');
+  const record = JSON.parse(err);
+  assert.equal(record.code, 'BAD_USAGE');
+  assert.equal(record.error, 'options come after the command: gerrit-axi status --json mine');
 });
 
 test('an empty section is stated, never omitted', async () => {

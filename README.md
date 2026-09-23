@@ -294,7 +294,8 @@ appears under each, as it does on Gerrit's dashboard, and `total` counts it once
 dashboard says what is there, and `show` says where it stands.
 
 `help` names the next step: the `show` for what awaits you, the `status --query`
-for the rest of a truncated section, the `publish` when nothing of yours is open.
+for the rest of a truncated section (with a larger `--limit` when the server held
+rows back), the `publish` when nothing of yours is open.
 It is prose for whoever reads the log, not a field to branch on.
 
 It costs four `gerrit query` round trips, run one at a time: a query row carries

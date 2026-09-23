@@ -174,8 +174,13 @@ function dashboardHelp(sections, total) {
   }
   for (const s of sections) {
     if (!s.more) continue;
-    const matched = `${s.count}${s.serverMore ? '+' : ''} matched, ${s.shown} shown`;
-    help.push(`Run \`gerrit-axi status --query '${s.query}'\` for every ${s.name} change (${matched})`);
+    if (s.serverMore) {
+      help.push(`Run \`gerrit-axi status --query '${s.query}' --limit ${DASHBOARD_FETCH_LIMIT * 10}\``
+        + ` for more ${s.name} changes (${s.count}+ matched, ${s.shown} shown)`);
+    } else {
+      help.push(`Run \`gerrit-axi status --query '${s.query}'\``
+        + ` for every ${s.name} change (${s.count} matched, ${s.shown} shown)`);
+    }
   }
   if (by.wip.count === 0 && by.outgoing.count === 0) {
     help.push('Run `gerrit-axi publish --stack --topic <t>` or `gerrit-axi publish --squash` to propose the commits on HEAD');

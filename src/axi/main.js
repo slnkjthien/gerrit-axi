@@ -178,6 +178,12 @@ export async function main(argv, io = {}) {
 
   try {
     const args = parseArgs(rest, FLAG_SPECS[op]);
+    const [stray] = args.positional;
+    if (!named && stray !== undefined && Object.hasOwn(OPS, stray)) {
+      const at = argv.indexOf(stray);
+      const fixed = [stray, ...argv.slice(0, at), ...argv.slice(at + 1)].join(' ');
+      throw new UsageError(`options come after the command: gerrit-axi ${fixed}`);
+    }
     if (args.help) {
       out(USAGE);
       return EXIT.ok;
