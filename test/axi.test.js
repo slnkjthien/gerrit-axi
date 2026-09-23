@@ -400,7 +400,7 @@ test('an unknown option is refused by name, before any call, with the command\'s
   }
 });
 
-test('a misspelt option is pointed at the nearest one, a stray one at the command that takes it', async () => {
+test('a misspelt option is pointed at the nearest one', async () => {
   const typo = await run(['show', '200101', '--comment', '--json']);
   assert.equal(typo.code, EXIT.usage);
   assert.equal(JSON.parse(typo.out).error, 'unknown option for show: --comment');
@@ -420,14 +420,6 @@ test('a misspelt option is pointed at the nearest one, a stray one at the comman
   assert.match(global.out, /^error: "unknown option for status: --jsno"$/m);
   assert.match(global.out, /^remedy: "Did you mean --json\? Options for status: --query, --limit\. /m);
 
-  // An option another command takes is named as that command's, which is the
-  // more useful fact than "invalid here".
-  const stray = await run(['status', '--rows', '3', '--json']);
-  assert.equal(JSON.parse(stray.out).error, 'unknown option for status: --rows');
-  assert.match(JSON.parse(stray.out).remedy, /^--rows is an option of dashboard, not of status\. Options for status: /);
-  const shared = await run(['dashboard', '--bots', '--json']);
-  assert.match(JSON.parse(shared.out).remedy, /^--bots is an option of show and comments, not of dashboard\. /);
-
   // Nothing close enough is named as a guess.
   const far = await run(['show', '200101', '--zzzzzz', '--json']);
   assert.equal(JSON.parse(far.out).remedy.includes('Did you mean'), false);
@@ -440,24 +432,6 @@ test('a misspelt option is pointed at the nearest one, a stray one at the comman
   assert.equal(nearest('--bot', ['--bots', '--host']), '--bots');
   assert.equal(nearest('--foo', ['--json', '--host', '--port']), undefined);
   assert.equal(nearest('--rows', ['--host']), undefined, 'a short word within two edits is not a guess');
-});
-
-test('an unknown command is refused with the commands listed, and the nearest named', async () => {
-  const typo = await run(['stauts', 'mine', '--json']);
-  assert.equal(typo.code, EXIT.usage);
-  assert.equal(typo.err, '');
-  assert.equal(typo.runner.calls.length, 0);
-  const record = JSON.parse(typo.out);
-  assert.deepEqual(
-    { ok: record.ok, op: record.op, error: record.error, code: record.code, kind: record.kind },
-    { ok: false, op: null, error: 'unknown command: stauts', code: 'BAD_USAGE', kind: 'usage' },
-  );
-  assert.equal(record.remedy,
-    'Did you mean status? Commands: dashboard, status, show, comments, auth, publish, submit, message, help, version.');
-
-  const far = await run(['frobnicate', '--json']);
-  assert.equal(JSON.parse(far.out).remedy,
-    'Commands: dashboard, status, show, comments, auth, publish, submit, message, help, version.');
 });
 
 test('the failure record distinguishes configuration, auth and transport', async () => {

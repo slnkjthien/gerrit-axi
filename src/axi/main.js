@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 
 import { AuthError, ConfigError, GerritError, TransportError } from '../core/errors.js';
 import { createSession } from '../core/session.js';
-import { nearest, parseArgs } from './args.js';
+import { parseArgs } from './args.js';
 import {
   opAuth,
   opComments,
@@ -49,10 +49,10 @@ a count per section and the next step to run.
 Records go to stdout: TOON by default, strict JSON with --json. A failure writes
 a typed error record to stdout in that same format, with ok: false, writes
 nothing to stderr, and exits non-zero, so a caller reads one stream and the
-exit code says what it holds. An option a command does not take, or
-a command that does not exist, is refused before anything is asked of git or the
-server (exit 2), and the record's remedy lists the options that command does
-take, or the commands, naming the nearest when a misspelling is close.
+exit code says what it holds. An option a command does not take is refused
+before anything is asked of git or the server (exit 2), and the record's remedy
+lists the options that command does take, naming the nearest when a misspelling
+is close.
 
 commands, and the options each one takes:
   dashboard                   the home view above, by name
@@ -172,14 +172,7 @@ export async function main(argv, io = {}) {
   const op = /** @type {keyof typeof OPS|undefined} */ (
     Object.hasOwn(OPS, command) ? command : undefined
   );
-  if (!op) {
-    // The same guarantee for a command as for an option: rejected by name, and
-    // the valid ones listed, so the next call needs no --help first.
-    const commands = [...Object.keys(OPS), 'help', 'version'];
-    const near = nearest(command, commands);
-    const remedy = `${near ? `Did you mean ${near}? ` : ''}Commands: ${commands.join(', ')}.`;
-    return fail(new UsageError(`unknown command: ${command}`, remedy), undefined);
-  }
+  if (!op) return fail(new UsageError(`unknown command: ${command}`), undefined);
 
   try {
     const args = parseArgs(rest, op);

@@ -120,9 +120,7 @@ export function parseArgs(argv, command) {
  * The unknown-option error, self-correcting in one turn: it names the command and
  * the option, and its remedy lists every option the command does take, so the
  * caller's next move is the corrected call rather than a `--help` round trip.
- * An option that exists but belongs to another command is pointed at that
- * command, since "valid elsewhere" is the more useful fact than "invalid here";
- * otherwise a misspelling close to a valid option is pointed at that option.
+ * A misspelling close to a valid option is pointed at that option.
  *
  * @param {string} arg
  * @param {keyof typeof COMMAND_OPTIONS} command
@@ -131,15 +129,8 @@ export function parseArgs(argv, command) {
 function unknownOption(arg, command) {
   const own = [...COMMAND_OPTIONS[command].withValue, ...COMMAND_OPTIONS[command].boolean];
   const hints = [];
-  const elsewhere = Object.entries(COMMAND_OPTIONS)
-    .filter(([name, opts]) => name !== command && [...opts.withValue, ...opts.boolean].includes(arg))
-    .map(([name]) => name);
-  const near = elsewhere.length > 0 ? undefined : nearest(arg, [...own, ...GLOBAL_OPTIONS]);
-  if (elsewhere.length > 0) {
-    hints.push(`${arg} is an option of ${elsewhere.join(' and ')}, not of ${command}.`);
-  } else if (near) {
-    hints.push(`Did you mean ${near}?`);
-  }
+  const near = nearest(arg, [...own, ...GLOBAL_OPTIONS]);
+  if (near) hints.push(`Did you mean ${near}?`);
   hints.push(own.length > 0
     ? `Options for ${command}: ${own.join(', ')}.`
     : `${command} takes no options of its own.`);

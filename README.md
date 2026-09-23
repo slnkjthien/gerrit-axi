@@ -471,8 +471,7 @@ whoever reads the log — not a field to branch on.
 A usage error is refused before git, ssh or the server is asked anything. An
 option the command does not take is named together with the options it does
 take, so the corrected call needs no `--help` first; a misspelling close to a
-valid option is pointed at that option, and an option another command takes is
-pointed at that command. An unknown command lists the commands the same way.
+valid option is pointed at that option.
 
 ```console
 $ gerrit-axi show 200101 --comment; echo "exit=$?"
