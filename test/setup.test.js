@@ -201,6 +201,35 @@ test('setup hooks repairs the path of a binary that moved, keeping one entry', a
   }
 });
 
+test('setup hooks folds duplicate ambient hooks into one entry', async () => {
+  const { home, exec, env, cleanup } = tempHome();
+  try {
+    const settings = path.join(home, '.claude', 'settings.json');
+    mkdirSync(path.dirname(settings), { recursive: true });
+    const theirs = { type: 'command', command: 'echo hello' };
+    writeFileSync(settings, JSON.stringify({
+      hooks: {
+        SessionStart: [
+          { matcher: '', hooks: [{ type: 'command', command: '/old/gerrit-axi dashboard --ambient', timeout: 10 }] },
+          { matcher: '', hooks: [theirs, { type: 'command', command: '/copy/gerrit-axi dashboard --ambient' }] },
+        ],
+      },
+    }));
+
+    const { out } = await run(['setup', 'hooks', '--json'], { env, exec });
+    assert.equal(JSON.parse(out).targets[0].action, 'updated');
+    assert.deepEqual(json(settings).hooks.SessionStart, [
+      { matcher: '', hooks: [{ type: 'command', command: `${exec} dashboard --ambient`, timeout: 10 }] },
+      { matcher: '', hooks: [theirs] },
+    ]);
+
+    const { out: again } = await run(['setup', 'hooks', '--json'], { env, exec });
+    assert.equal(JSON.parse(again).targets[0].action, 'unchanged');
+  } finally {
+    cleanup();
+  }
+});
+
 test('the hook names the bare binary when gerrit-axi on PATH is this executable', async () => {
   const { home, exec, env, cleanup } = tempHome();
   try {
@@ -482,6 +511,68 @@ test('the ambient view never fails: an unreachable server is one line, and exit 
     assert.equal('sections' in view, false);
     assert.match(view.help[0],
       /^Could not read your changes from gerrit\.example\.com: ssh to Gerrit failed: "Permission denied \(publickey\)\."; run `gerrit-axi` for the error and its remedy$/);
+  } finally {
+    cleanup();
+  }
+});
+
+test('the ambient view bounds its queries well inside the hook timeout', async () => {
+  const { exec, env, cleanup } = tempHome();
+  try {
+    /** @type {Array<{args: string[], timeoutMs?: number}>} */
+    const ssh = [];
+    const runner = fakeRunner([
+      { match: (f, a) => f === 'git' && a.includes('remote'), result: { stdout: REMOTE } },
+      {
+        match: (f) => f === 'ssh',
+        result: (_f, args, opts) => {
+          ssh.push({ args, timeoutMs: opts?.timeoutMs });
+          return { code: 255, stderr: 'ssh: connect to host gerrit.example.com port 29418: Connection timed out\n' };
+        },
+      },
+    ]);
+    const stdout = captureStream();
+    const code = await main(['dashboard', '--ambient', '--json'], {
+      cwd: '/some/checkout', env, stdout: stdout.stream, stderr: captureStream().stream, runner, execPath: exec,
+    });
+    assert.equal(code, EXIT.ok);
+    assert.match(JSON.parse(stdout.text).help[0], /^Could not read your changes from gerrit\.example\.com: /);
+    assert.equal(ssh.length, 1);
+    assert.ok((ssh[0].timeoutMs ?? Infinity) <= 5_000, `ssh timeout ${ssh[0].timeoutMs}ms`);
+    const connect = ssh[0].args.find((a) => a.startsWith('ConnectTimeout='));
+    assert.ok(Number(connect?.split('=')[1]) <= 5, String(connect));
+  } finally {
+    cleanup();
+  }
+});
+
+test('a connection that cannot be resolved in a Gerrit checkout says why, not where to go', async () => {
+  const { home, exec, env, cleanup } = tempHome();
+  try {
+    const config = path.join(home, '.config', 'gerrit-axi', 'config.json');
+    mkdirSync(path.dirname(config), { recursive: true });
+    writeFileSync(config, '{ not json');
+    const { code, out, runner } = await run(['dashboard', '--ambient', '--json'], { env, exec });
+    assert.equal(code, EXIT.ok);
+    assert.match(JSON.parse(out).help[0],
+      /^Could not resolve the Gerrit connection: invalid JSON in .*config\.json.*; run `gerrit-axi` for the error and its remedy$/);
+    assert.equal(runner.calls.some((call) => call.file === 'ssh'), false);
+  } finally {
+    cleanup();
+  }
+});
+
+test('--host alone does not make the ambient view query a server', async () => {
+  const { exec, env, cleanup } = tempHome();
+  try {
+    const { code, out, runner } = await run(
+      ['dashboard', '--ambient', '--host', 'gerrit.example.com', '--user', 'ada', '--json'],
+      { env, exec, remote: null },
+    );
+    assert.equal(code, EXIT.ok, out);
+    assert.equal(JSON.parse(out).help.length, 1);
+    assert.match(JSON.parse(out).help[0], /for your review dashboard on gerrit\.example\.com$/);
+    assert.equal(runner.calls.some((call) => call.file === 'ssh'), false);
   } finally {
     cleanup();
   }

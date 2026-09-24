@@ -241,9 +241,10 @@ export async function loadToken(id) {
 }
 
 /**
- * Whether a credential is stored, without decrypting one: a gpg file is only
- * checked for, so this never raises a pinentry prompt, and nothing it reads
- * leaves this function. For a caller that runs unattended, such as a session
+ * Whether a credential is stored, without decrypting one: the keyring is
+ * searched without unlocking it and a gpg file is only checked for, so this
+ * never raises an unlock or pinentry prompt, and nothing it reads leaves this
+ * function. For a caller that runs unattended, such as a session
  * start, and needs to know whether to say "not signed in" -- not whether the
  * token still works, which only the server can say (see `authStatus`).
  *
@@ -256,8 +257,8 @@ export async function hasStoredToken(id) {
 
   if (commandExists('secret-tool', env)) {
     try {
-      const { code, stdout } = await runner('secret-tool', ['lookup', ...attrs(id)], {
-        timeoutMs: 5_000,
+      const { code, stdout } = await runner('secret-tool', ['search', ...attrs(id)], {
+        timeoutMs: 2_000,
         env,
       });
       if (code === 0 && stdout.trim()) return true;

@@ -279,10 +279,10 @@ export function sshFailure(conn, result) {
 export async function sshQuery(
   conn,
   query,
-  { limit = 100, runner = runCommand, include = [] } = {},
+  { limit = 100, runner = runCommand, include = [], connectTimeoutSeconds, timeoutMs } = {},
 ) {
-  const args = buildSshArgs(conn, query, { limit, include });
-  const result = await runSsh(args, { runner });
+  const args = buildSshArgs(conn, query, { limit, include, connectTimeoutSeconds });
+  const result = await runSsh(args, { runner, timeoutMs });
   if (result.code !== 0) throw sshFailure(conn, result);
   return parseQueryOutput(result.stdout);
 }

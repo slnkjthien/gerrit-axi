@@ -422,8 +422,8 @@ sections[5]{section,count}:
 help[2]: Nothing awaits your attention.,Run `gerrit-axi` for the changes in each section
 ```
 
-It queries the server only in a checkout whose `origin` is a Gerrit remote (or
-when `--host` names one). Anywhere else it prints just `bin`, `description` and
+It queries the server only in a checkout whose `origin` is a Gerrit remote.
+Anywhere else it prints just `bin`, `description` and
 one line on where to start, and nothing leaves the machine. It never fails: an
 unreachable server is a `help` line, a missing credential adds a `Not signed in`
 line naming `gerrit auth login`, and the exit code is 0.

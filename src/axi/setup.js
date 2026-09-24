@@ -143,15 +143,23 @@ export function withHook(settings, cmd) {
   const next = structuredClone(settings);
   next.hooks ??= {};
   next.hooks.SessionStart = Array.isArray(next.hooks.SessionStart) ? next.hooks.SessionStart : [];
-  for (const group of next.hooks.SessionStart) {
-    for (const hook of Array.isArray(group?.hooks) ? group.hooks : []) {
-      if (!isManagedHook(hook)) continue;
-      if (hook.command === cmd && hook.type === 'command' && hook.timeout === HOOK_TIMEOUT_SECONDS) {
-        return [settings, 'unchanged'];
-      }
-      Object.assign(hook, { type: 'command', command: cmd, timeout: HOOK_TIMEOUT_SECONDS });
-      return [next, 'updated'];
+  const managed = next.hooks.SessionStart.flatMap(
+    (/** @type {any} */ group) => (Array.isArray(group?.hooks) ? group.hooks : []).filter(isManagedHook),
+  );
+  if (managed.length > 0) {
+    const [first] = managed;
+    if (managed.length === 1 && first.command === cmd && first.type === 'command'
+      && first.timeout === HOOK_TIMEOUT_SECONDS) {
+      return [settings, 'unchanged'];
     }
+    Object.assign(first, { type: 'command', command: cmd, timeout: HOOK_TIMEOUT_SECONDS });
+    next.hooks.SessionStart = next.hooks.SessionStart.flatMap((/** @type {any} */ group) => {
+      if (!Array.isArray(group?.hooks)) return [group];
+      const hooks = group.hooks.filter((/** @type {any} */ hook) => hook === first || !isManagedHook(hook));
+      if (hooks.length === group.hooks.length) return [group];
+      return hooks.length > 0 ? [{ ...group, hooks }] : [];
+    });
+    return [next, 'updated'];
   }
   next.hooks.SessionStart.push({
     matcher: '',

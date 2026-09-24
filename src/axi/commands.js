@@ -70,6 +70,12 @@ const DASHBOARD_ROWS = 10;
 const DASHBOARD_FETCH_LIMIT = 100;
 
 /**
+ * How long the ambient view's queries may take in all, well inside the
+ * session-start hook's timeout, so an unreachable server is still a help line.
+ */
+const AMBIENT_QUERY_BUDGET_MS = 5_000;
+
+/**
  * `dashboard` -- the home view, and what a bare `gerrit-axi` prints: the
  * caller's open changes grouped the way Gerrit's own dashboard groups them.
  * Your turn, work in progress, outgoing, incoming, CCed on.
@@ -124,12 +130,19 @@ export async function opDashboard(ctx) {
  *
  * @param {import('../core/session.js').Session} session
  * @param {number} rows
+ * @param {{deadline?: number}} [opts]  epoch ms by which every query must have finished
  * @returns {Promise<DashboardSection[]>}
  */
-async function dashboardSections(session, rows) {
-  const fetch = (/** @type {import('../core/changes.js').QuerySpec} */ spec) => (
-    queryChangePage(session, spec, { limit: DASHBOARD_FETCH_LIMIT })
-  );
+async function dashboardSections(session, rows, { deadline } = {}) {
+  const fetch = (/** @type {import('../core/changes.js').QuerySpec} */ spec) => {
+    if (deadline === undefined) return queryChangePage(session, spec, { limit: DASHBOARD_FETCH_LIMIT });
+    const timeoutMs = Math.max(1, deadline - Date.now());
+    return queryChangePage(session, spec, {
+      limit: DASHBOARD_FETCH_LIMIT,
+      timeoutMs,
+      connectTimeoutSeconds: Math.max(1, Math.ceil(timeoutMs / 1000)),
+    });
+  };
   const attention = await fetch({ kind: 'attention' });
   const own = await fetch({ kind: 'mine' });
   const incoming = await fetch({ kind: 'incoming' });
@@ -168,8 +181,7 @@ export const DESCRIPTION = 'Gerrit code review for agents: what awaits you, chan
  * `dashboard --ambient` -- what a session-start hook prints (`gerrit-axi setup
  * hooks` installs one). It loads on every session, so it is the dashboard's
  * counts without its rows, and the server is asked only from a checkout whose
- * origin is a Gerrit remote, or when `--host` names one: anywhere else the
- * session learns the tool exists and how to start, and no query leaves the
+ * origin is a Gerrit remote: anywhere else the session learns the tool exists and how to start, and no query leaves the
  * machine.
  *
  * It never fails, because a failing hook breaks the start of an unrelated
@@ -189,12 +201,14 @@ async function ambientView({ args, connect, env = {}, execPath = '' }) {
   let session;
   try {
     session = await /** @type {NonNullable<Ctx['connect']>} */ (connect)();
-  } catch {
-    doc.help = [`Run \`${run([])}\` in a checkout whose origin is a Gerrit remote for your review dashboard`];
+  } catch (err) {
+    doc.help = [/** @type {any} */ (err)?.code === 'HOST_UNRESOLVED'
+      ? `Run \`${run([])}\` in a checkout whose origin is a Gerrit remote for your review dashboard`
+      : `Could not resolve the Gerrit connection: ${firstLine(err)}; run \`${run([])}\` for the error and its remedy`];
     return doc;
   }
   const { host, user, sources } = session.config;
-  if (sources.host !== 'git-remote' && sources.host !== 'override') {
+  if (sources.host !== 'git-remote') {
     doc.help = [`Run \`${run([])}\` for your review dashboard on ${host}`];
     return doc;
   }
@@ -204,7 +218,9 @@ async function ambientView({ args, connect, env = {}, execPath = '' }) {
   /** @type {string[]} */
   const help = [];
   try {
-    const sections = await dashboardSections(session, DASHBOARD_ROWS);
+    const sections = await dashboardSections(session, DASHBOARD_ROWS, {
+      deadline: Date.now() + AMBIENT_QUERY_BUDGET_MS,
+    });
     doc.sections = sections.map((s) => ({ section: s.name, count: s.count }));
     const by = Object.fromEntries(sections.map((s) => [s.name, s]));
     if (distinctChanges(sections) === 0) help.push('No open change involves you.');
