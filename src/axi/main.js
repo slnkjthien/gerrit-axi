@@ -25,6 +25,7 @@ import {
 } from './commands.js';
 import { COMMAND_HELP, USAGE } from './help.js';
 import { COMMAND_TEMPLATES, errorHelp } from './hints.js';
+import { opSetup } from './setup.js';
 import { UsageError, errorRecord, serialize } from './output.js';
 import { VERSION, VERSION_FLAGS } from './version.js';
 
@@ -49,14 +50,17 @@ const OPS = {
   publish: opPublish,
   submit: opSubmit,
   message: opMessage,
+  setup: opSetup,
 };
 
 /**
  * @param {string[]} argv          argv without node and script
  * @param {{cwd?: string, env?: NodeJS.ProcessEnv, stdin?: NodeJS.ReadStream,
  *          stdout?: NodeJS.WriteStream, stderr?: NodeJS.WriteStream,
- *          runner?: import('../core/exec.js').Runner, fetchImpl?: typeof fetch}} [io]
+ *          runner?: import('../core/exec.js').Runner, fetchImpl?: typeof fetch,
+ *          execPath?: string}} [io]
  *          `stderr` is accepted and never written: a failure is a record on stdout.
+ *          `execPath` is this binary, which `setup hooks` registers.
  * @returns {Promise<number>} exit code
  */
 export async function main(argv, io = {}) {
@@ -67,6 +71,7 @@ export async function main(argv, io = {}) {
     stdout = process.stdout,
     runner,
     fetchImpl,
+    execPath = process.argv[1] ?? '',
   } = io;
 
   const [first, ...tail] = argv;
@@ -127,14 +132,20 @@ export async function main(argv, io = {}) {
       out(VERSION);
       return EXIT.ok;
     }
-    const session = await createSession({
-      overrides: args.overrides,
+    const parsed = args;
+    const connect = () => createSession({
+      overrides: parsed.overrides,
       cwd,
       env,
       runner,
       fetchImpl,
     });
-    out(serialize(await OPS[op]({ session, args, stdin }), { json: args.json }));
+    // Setup and the ambient view must answer where no host resolves, so they
+    // connect when and if they need to; every other command needs a server.
+    const lazy = op === 'setup' || (op === 'dashboard' && args.flags['--ambient'] === true);
+    const session = lazy ? undefined : await connect();
+    const ctx = { session: /** @type {any} */ (session), args, stdin, connect, env, execPath };
+    out(serialize(await OPS[op](ctx), { json: args.json }));
     return EXIT.ok;
   } catch (error) {
     return fail(error, op);

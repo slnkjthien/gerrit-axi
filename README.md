@@ -22,9 +22,9 @@ no path to a vote exists, and `npm test` fails if a REST call to the review
 endpoint or a label option on a push appears anywhere in the code, or if
 `gerrit review` — the SSH command that posts a message, and that could vote — is
 spelled anywhere but in the one module that builds it, or there with any option
-but `--message`. Those three are the only writes by design. The binding control
-is the label permissions your server grants the account an agent uses; this is
-defence in depth behind them.
+but `--message`. Those three are the only writes to Gerrit by design. The
+binding control is the label permissions your server grants the account an agent
+uses; this is defence in depth behind them.
 
 ```console
 $ gerrit status
@@ -195,6 +195,11 @@ gerrit-axi submit <change>             ask the server to submit one change
 
 gerrit-axi message <change>            post one change-level message on the current patch set
     --file <path>                      read the text from a file instead of stdin
+
+gerrit-axi setup hooks                 opt in: run the ambient view at every agent session start
+    --remove                           take those hooks out again
+gerrit-axi setup config                save this checkout's host, port and user to the config file
+gerrit-axi dashboard --ambient         the view a session-start hook prints (see below)
 ```
 
 Global options: `--json`, `--host`, `--user`, `--port`, `--project`,
@@ -367,6 +372,72 @@ share a call, since `wip` is on the row.
 
 When no host can be resolved the dashboard fails like every other command, with
 an error record on stdout and a non-zero exit — see [Failures](#failures).
+
+### Session integration
+
+An agent session learns gerrit-axi exists, and what awaits you, only if something
+tells it. There are two ways to tell it, and you need one of them.
+
+**A session-start hook.** `gerrit-axi setup hooks` registers
+`gerrit-axi dashboard --ambient` to run when a session starts, in your user
+config for Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json`,
+plus `hooks = true` under `[features]` in `~/.codex/config.toml`, which Codex needs
+before it runs any hook) and OpenCode (a plugin,
+`~/.config/opencode/plugins/axi-gerrit-axi.js`); `CLAUDE_CONFIG_DIR`,
+`CODEX_HOME` and `XDG_CONFIG_HOME` move them as they move each agent's own
+config. Nothing is written there unless you run it. The hook names `gerrit-axi`
+when that is this binary on your `PATH`, and its absolute path otherwise; running
+setup again changes nothing, or repairs the path after a move. The record lists
+each file and what happened to it.
+
+Before it installs, setup checks what the hook will need and says what is
+missing, as the human command that fixes it: a host or user that does not
+resolve, or `gerrit auth login` for a credential that is missing or that the
+server rejects. It never asks for, reads or stores a credential itself. In a
+Gerrit checkout with no config file yet, it offers `gerrit-axi setup config`,
+which writes that checkout's host, port and user to the config file so the
+dashboard resolves outside it too; it never overwrites a config file that
+exists.
+
+`gerrit-axi setup hooks --remove` takes out exactly those hooks, recognised by
+their command, and the plugin file if gerrit-axi wrote it. Every other hook stays,
+and so does the Codex flag, which other tools' hooks rely on. A file setup cannot
+parse, or a plugin it did not write, is reported under `failures` and left alone.
+
+The ambient view loads into every session, so it is the dashboard's counts
+without its rows:
+
+```console
+$ gerrit-axi dashboard --ambient
+bin: ~/.local/bin/gerrit-axi
+description: "Gerrit code review for agents: ..."
+host: gerrit.example.com
+user: ada
+sections[5]{section,count}:
+  your_turn,0
+  wip,1
+  outgoing,2
+  incoming,2
+  cced,0
+help[2]: Nothing awaits your attention.,Run `gerrit-axi` for the changes in each section
+```
+
+It queries the server only in a checkout whose `origin` is a Gerrit remote (or
+when `--host` names one). Anywhere else it prints just `bin`, `description` and
+one line on where to start, and nothing leaves the machine. It never fails: an
+unreachable server is a `help` line, a missing credential adds a `Not signed in`
+line naming `gerrit auth login`, and the exit code is 0.
+
+**An installable skill.** [`skills/gerrit-axi/SKILL.md`](skills/gerrit-axi/SKILL.md)
+loads only when a task needs it, costs nothing per session, and works in any agent
+that reads [Agent Skills](https://agentskills.io):
+
+```sh
+npx skills add slnkjthien/gerrit-axi --skill gerrit-axi
+```
+
+It carries no live state, which only the hook can show. `test/setup.test.js`
+fails if it stops naming a command or names one that does not exist.
 
 ### Inline comments
 
@@ -801,8 +872,9 @@ Two rules decide whether this design survives, and both are enforced by tests in
 prints. It reaches Gerrit only through `src/core/`: `main.js` dispatches and turns
 a thrown error into a record, `commands.js` calls core and assembles a document,
 `records.js` projects core's typed models onto named fields, and `toon.js`
-serialises. Its own tests read every table back by field name, the way a consumer
-does.
+serialises. `setup.js` is the one module that writes an agent's configuration,
+and only when `setup` is run. Its own tests read every table back by field name,
+the way a consumer does.
 
 That layout is why the human `gerrit` has no `--json`. A second output contract
 inside the renderer would have to be kept in step with the tables beside it,
@@ -890,6 +962,10 @@ injectable, the real code paths run against them. Covered in particular:
   carrying the same fields, a failure landing on stdout as a typed record
   with stderr empty, and an unknown option refused before any call
   with the valid ones listed in the record
+- session integration against a temporary home: install, a repeated install that
+  changes nothing, a moved binary repaired, removal that keeps every hook it did
+  not write, files it cannot parse left alone, and an ambient view that exits 0
+  wherever it runs and queries no server outside a Gerrit checkout
 - the TOON encoder's quoting and escaping, so a consumer can always tell a string
   from a number, a null, or a delimiter
 - publication against a scripted repository: existing Change-Ids carried byte for

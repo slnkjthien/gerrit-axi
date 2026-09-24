@@ -241,6 +241,34 @@ export async function loadToken(id) {
 }
 
 /**
+ * Whether a credential is stored, without decrypting one: a gpg file is only
+ * checked for, so this never raises a pinentry prompt, and nothing it reads
+ * leaves this function. For a caller that runs unattended, such as a session
+ * start, and needs to know whether to say "not signed in" -- not whether the
+ * token still works, which only the server can say (see `authStatus`).
+ *
+ * @param {{host: string, user: string, env?: NodeJS.ProcessEnv, runner?: import('./exec.js').Runner}} id
+ * @returns {Promise<boolean>}
+ */
+export async function hasStoredToken(id) {
+  const { env = process.env, runner = runCommand } = id;
+  const p = paths({ ...id, env });
+
+  if (commandExists('secret-tool', env)) {
+    try {
+      const { code, stdout } = await runner('secret-tool', ['lookup', ...attrs(id)], {
+        timeoutMs: 5_000,
+        env,
+      });
+      if (code === 0 && stdout.trim()) return true;
+    } catch {
+      // fall through to the file backends
+    }
+  }
+  return (await exists(p.gpg)) || (await exists(p.plain));
+}
+
+/**
  * Like `loadToken`, but the absence of a credential is an error with a remedy.
  *
  * @param {{host: string, user: string, env?: NodeJS.ProcessEnv, runner?: import('./exec.js').Runner}} id

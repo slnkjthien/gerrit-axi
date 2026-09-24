@@ -56,8 +56,16 @@ fails if any of them is broken, which is the intended way to find out.
   source text on purpose, an exception to asserting behaviour: a security
   invariant needs a whole-source claim. `test/message.test.js` and
   `test/vote-ban.test.js` are its runtime complement and pin the message argv by
-  running it; keep all three. Those three are the only writes by design: add no
-  other.
+  running it; keep all three. Those three are the only writes to Gerrit by
+  design: add no other.
+- `gerrit-axi setup` (`src/axi/setup.js`) is the only code that writes an agent's
+  configuration, and only when a person runs it; no other command may touch those
+  files. Removal matches our hook by command (`gerrit-axi ... dashboard
+  --ambient`), never by name alone, and leaves Codex's shared `[features].hooks`
+  flag. `dashboard --ambient` runs at every session start, so it exits 0
+  wherever it runs and queries the server only from a Gerrit checkout.
+  `test/setup.test.js` drives all of it against a temporary HOME; pass `env`
+  with HOME in any new test, because setup never falls back to the real one.
 - `publish` never regenerates a Change-Id: a new one creates a different change
   and orphans the original's review. An existing one is pushed verbatim; a
   missing one is stamped and written back into the local branch (messages only)

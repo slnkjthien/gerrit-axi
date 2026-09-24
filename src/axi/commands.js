@@ -35,6 +35,7 @@ import { publishChanges } from '../core/publish.js';
 import { submitChange } from '../core/submit.js';
 import { changeNumbers, messageCount, positiveInt } from './args.js';
 import { command, invocation, submittableHint, truncationHint } from './hints.js';
+import { hookCommand, tildify } from './setup.js';
 import {
   changeRow,
   commentRows,
@@ -50,9 +51,13 @@ import { UsageError } from './output.js';
 
 /**
  * @typedef {Object} Ctx
- * @property {import('../core/session.js').Session} session
+ * @property {import('../core/session.js').Session} session  absent where `connect` is the way in
  * @property {import('./args.js').ParsedArgs} args
  * @property {NodeJS.ReadStream} [stdin]   where `message` reads its text
+ * @property {() => Promise<import('../core/session.js').Session>} [connect]
+ *           builds the session, for an operation that must not fail when none resolves
+ * @property {NodeJS.ProcessEnv} [env]
+ * @property {string} [execPath]            this binary, as a hook would name it
  */
 
 /** Rows the dashboard shows per section unless `--rows` says otherwise. */
@@ -83,16 +88,45 @@ const DASHBOARD_FETCH_LIMIT = 100;
  * @param {Ctx} ctx
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function opDashboard({ session, args }) {
+export async function opDashboard(ctx) {
+  const { args } = ctx;
   const { positional, flags, overrides } = args;
   if (positional.length > 0) {
     throw new UsageError(`dashboard takes no arguments (got: ${positional.join(' ')})`);
+  }
+  if (flags['--ambient']) {
+    if (flags['--rows'] !== undefined) throw new UsageError('--ambient shows counts, not rows; drop --rows');
+    return ambientView(ctx);
   }
   const rows = positiveInt(flags['--rows'], DASHBOARD_ROWS, '--rows');
   if (rows < 1 || rows > DASHBOARD_FETCH_LIMIT) {
     throw new UsageError(`--rows must be between 1 and ${DASHBOARD_FETCH_LIMIT}, got: ${rows}`);
   }
 
+  const session = /** @type {import('../core/session.js').Session} */ (ctx.session);
+  const sections = await dashboardSections(session, rows);
+  const distinct = distinctChanges(sections);
+
+  return {
+    ok: true,
+    op: 'dashboard',
+    user: session.config.user,
+    host: session.config.host,
+    total: distinct,
+    sections: sections.map(sectionRow),
+    entries: sections.flatMap((s) => s.kept.map((change) => entryRow(s.name, change))),
+    help: dashboardHelp(sections, distinct, overrides),
+  };
+}
+
+/**
+ * The dashboard's five sections, from its four queries.
+ *
+ * @param {import('../core/session.js').Session} session
+ * @param {number} rows
+ * @returns {Promise<DashboardSection[]>}
+ */
+async function dashboardSections(session, rows) {
   const fetch = (/** @type {import('../core/changes.js').QuerySpec} */ spec) => (
     queryChangePage(session, spec, { limit: DASHBOARD_FETCH_LIMIT })
   );
@@ -102,7 +136,7 @@ export async function opDashboard({ session, args }) {
   const cced = await fetch({ kind: 'cced' });
 
   const mine = buildQuery({ kind: 'mine' });
-  const sections = [
+  return [
     dashboardSection('your_turn', buildQuery({ kind: 'attention' }), attention, rows),
     dashboardSection('wip', `${mine} is:wip`, {
       changes: own.changes.filter((change) => change.wip),
@@ -115,18 +149,92 @@ export async function opDashboard({ session, args }) {
     dashboardSection('incoming', buildQuery({ kind: 'incoming' }), incoming, rows),
     dashboardSection('cced', buildQuery({ kind: 'cced' }), cced, rows),
   ];
-  const distinct = new Set(sections.flatMap((s) => s.changes.map((change) => change.number)));
+}
 
-  return {
-    ok: true,
-    op: 'dashboard',
-    user: session.config.user,
-    host: session.config.host,
-    total: distinct.size,
-    sections: sections.map(sectionRow),
-    entries: sections.flatMap((s) => s.kept.map((change) => entryRow(s.name, change))),
-    help: dashboardHelp(sections, distinct.size, overrides),
-  };
+/**
+ * @param {DashboardSection[]} sections
+ * @returns {number} changes across all sections, each counted once
+ */
+function distinctChanges(sections) {
+  return new Set(sections.flatMap((s) => s.changes.map((change) => change.number))).size;
+}
+
+/** One line on what gerrit-axi is, for the session a hook starts. */
+export const DESCRIPTION = 'Gerrit code review for agents: what awaits you, change readiness and'
+  + ' inline comments as records; publishes, posts change messages and submits, and cannot vote.'
+  + ' Prefer it over raw `gerrit query` over ssh or Gerrit\'s REST API.';
+
+/**
+ * `dashboard --ambient` -- what a session-start hook prints (`gerrit-axi setup
+ * hooks` installs one). It loads on every session, so it is the dashboard's
+ * counts without its rows, and the server is asked only from a checkout whose
+ * origin is a Gerrit remote, or when `--host` names one: anywhere else the
+ * session learns the tool exists and how to start, and no query leaves the
+ * machine.
+ *
+ * It never fails, because a failing hook breaks the start of an unrelated
+ * session: a server that cannot be reached, or a missing credential, is a line
+ * of help[], and the exit code is 0.
+ *
+ * @param {Ctx} ctx
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function ambientView({ args, connect, env = {}, execPath = '' }) {
+  const { overrides } = args;
+  const run = (/** @type {Array<string|number>} */ words) => command(words, overrides);
+  /** @type {Record<string, unknown>} */
+  const doc = { bin: tildify(hookCommand({ execPath, env }).bin, env), description: DESCRIPTION };
+
+  /** @type {import('../core/session.js').Session} */
+  let session;
+  try {
+    session = await /** @type {NonNullable<Ctx['connect']>} */ (connect)();
+  } catch {
+    doc.help = [`Run \`${run([])}\` in a checkout whose origin is a Gerrit remote for your review dashboard`];
+    return doc;
+  }
+  const { host, user, sources } = session.config;
+  if (sources.host !== 'git-remote' && sources.host !== 'override') {
+    doc.help = [`Run \`${run([])}\` for your review dashboard on ${host}`];
+    return doc;
+  }
+
+  doc.host = host;
+  doc.user = user;
+  /** @type {string[]} */
+  const help = [];
+  try {
+    const sections = await dashboardSections(session, DASHBOARD_ROWS);
+    doc.sections = sections.map((s) => ({ section: s.name, count: s.count }));
+    const by = Object.fromEntries(sections.map((s) => [s.name, s]));
+    if (distinctChanges(sections) === 0) help.push('No open change involves you.');
+    else if (by.your_turn.count === 0) help.push('Nothing awaits your attention.');
+    else {
+      const numbers = by.your_turn.kept.map((change) => change.number);
+      help.push(`Run \`${run(['show', ...numbers, '--comments'])}\` for the full state of what awaits you`);
+    }
+    for (const s of sections.filter((section) => section.serverMore)) {
+      help.push(`Run \`${run(['status', '--query', s.query, '--limit', DASHBOARD_FETCH_LIMIT * 10])}\``
+        + ` for more ${s.name} changes (${s.count}+ matched)`);
+    }
+    help.push(`Run \`${run([])}\` for the changes in each section`);
+  } catch (err) {
+    help.push(`Could not read your changes from ${host}: ${firstLine(err)};`
+      + ` run \`${run([])}\` for the error and its remedy`);
+  }
+  if (!(await session.hasStoredToken().catch(() => true))) {
+    help.push('Not signed in: run `gerrit auth login` so inline comments and submit can reach the server');
+  }
+  doc.help = help;
+  return doc;
+}
+
+/**
+ * @param {unknown} err
+ * @returns {string}
+ */
+function firstLine(err) {
+  return String(/** @type {any} */ (err)?.message ?? err).split('\n')[0];
 }
 
 /**
