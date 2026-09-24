@@ -469,6 +469,22 @@ test('setup config outside a Gerrit checkout is an error record, not a guess', a
   }
 });
 
+test('setup config where no host resolves points at a Gerrit checkout, not at --host', async () => {
+  const { home, exec, env, cleanup } = tempHome();
+  try {
+    const { code, out } = await run(['setup', 'config', '--json'], { env, exec, remote: null });
+    assert.equal(code, EXIT.config);
+    const record = JSON.parse(out);
+    assert.equal(record.ok, false);
+    assert.equal(record.code, 'NOT_A_GERRIT_CHECKOUT');
+    assert.equal(record.remedy, 'Run it in a checkout whose origin remote points at Gerrit.');
+    assert.equal(record.help, undefined);
+    assert.equal(existsSync(path.join(home, '.config', 'gerrit-axi', 'config.json')), false);
+  } finally {
+    cleanup();
+  }
+});
+
 test('the ambient view in a Gerrit checkout is counts and next steps, never rows', async () => {
   const { exec, env, cleanup } = tempHome();
   try {

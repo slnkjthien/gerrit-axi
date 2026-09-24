@@ -484,7 +484,7 @@ export async function opSetup({ args, connect, env, execPath }) {
 
   if (what === 'config') {
     if (flags['--remove']) throw new UsageError('--remove applies to setup hooks only');
-    return setupConfig(await connect(), env);
+    return setupConfig(connect, env);
   }
 
   if (flags['--remove']) {
@@ -528,18 +528,29 @@ export async function opSetup({ args, connect, env, execPath }) {
 }
 
 /**
- * @param {import('../core/session.js').Session} session
+ * @param {() => Promise<import('../core/session.js').Session>} connect
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<Record<string, unknown>>}
  */
-async function setupConfig(session, env) {
-  const { host, port, user, sources } = session.config;
-  if (sources.host !== 'git-remote') {
-    throw new ConfigError("this directory's origin is not a Gerrit remote, so there is nothing to save", {
+async function setupConfig(connect, env) {
+  const notACheckout = () => new ConfigError(
+    "this directory's origin is not a Gerrit remote, so there is nothing to save", {
       code: 'NOT_A_GERRIT_CHECKOUT',
       remedy: 'Run it in a checkout whose origin remote points at Gerrit.',
     });
+  /** @type {import('../core/session.js').Session} */
+  let session;
+  try {
+    session = await connect();
+  } catch (err) {
+    // No host at all means no Gerrit origin either; the generic remedy's
+    // --host and GERRIT_HOST would only lead to this same refusal.
+    const e = /** @type {any} */ (err);
+    if (e?.code === 'HOST_UNRESOLVED' && !/username/.test(String(e.message))) throw notACheckout();
+    throw err;
   }
+  const { host, port, user, sources } = session.config;
+  if (sources.host !== 'git-remote') throw notACheckout();
   const saved = await saveConnection({ host, port, user }, { env });
   return {
     ok: true,
