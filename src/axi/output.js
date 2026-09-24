@@ -26,14 +26,17 @@ export class UsageError extends Error {
   /**
    * @param {string} message
    * @param {string} [remedy]
+   * @param {string[]} [help]  the corrected call, as `help[]` lines
    */
-  constructor(message, remedy) {
+  constructor(message, remedy, help) {
     super(message);
     this.name = 'UsageError';
     /** @type {string} */
     this.code = 'BAD_USAGE';
     /** @type {string|undefined} */
     this.remedy = remedy;
+    /** @type {string[]|undefined} */
+    this.help = help;
   }
 }
 
@@ -50,13 +53,15 @@ export function serialize(document, { json = false } = {}) {
  * The error record. `code` is the raiser's machine-readable code, `kind` is the
  * class of failure the exit code was chosen from, and `remedy` appears only when
  * the raiser supplied one -- core for a server-side failure, the parser for a
- * usage one. It is a hint for whoever reads the log, never a field to branch on.
+ * usage one. `help` is the command that fixes or diagnoses the failure, present
+ * only when there is one (see `errorHelp` in hints.js). Both are hints for
+ * whoever reads the log, never fields to branch on.
  *
  * @param {unknown} error
- * @param {{op?: string}} [context]
+ * @param {{op?: string, help?: readonly string[]}} [context]
  * @returns {Record<string, unknown>}
  */
-export function errorRecord(error, { op } = {}) {
+export function errorRecord(error, { op, help = [] } = {}) {
   const code = /** @type {any} */ (error)?.code;
   /** @type {Record<string, unknown>} */
   const record = {
@@ -69,6 +74,7 @@ export function errorRecord(error, { op } = {}) {
   if ((error instanceof GerritError || error instanceof UsageError) && error.remedy) {
     record.remedy = error.remedy;
   }
+  if (help.length > 0) record.help = [...help];
   return record;
 }
 

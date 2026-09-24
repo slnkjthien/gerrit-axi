@@ -31,8 +31,8 @@ const GLOBAL_OPTIONS = ['--json', '--host', '--user', '--port', '--project', '--
 export const COMMAND_OPTIONS = {
   dashboard: { withValue: ['--rows'], boolean: [] },
   status: { withValue: ['--query', '--limit'], boolean: [] },
-  show: { withValue: ['--messages'], boolean: ['--comments', '--bots', '--humans'] },
-  comments: { withValue: [], boolean: ['--bots', '--humans'] },
+  show: { withValue: ['--messages'], boolean: ['--comments', '--bots', '--humans', '--full'] },
+  comments: { withValue: [], boolean: ['--bots', '--humans', '--full'] },
   auth: { withValue: [], boolean: [] },
   publish: { withValue: ['--topic', '--branch'], boolean: ['--stack', '--squash'] },
   submit: { withValue: [], boolean: [] },

@@ -179,9 +179,11 @@ gerrit-axi show <change>...            full review state, one record per change
     --messages <n|all>                 also emit that many cover messages (default 0)
     --comments                         also emit the inline comments
     --bots | --humans                  with --comments: only / never machine-generated
+    --full                             whole message and comment bodies (see below)
 
 gerrit-axi comments <change>...        inline review comments on every change named
     --bots | --humans                  only / never machine-generated
+    --full                             whole comment bodies
 
 gerrit-axi auth status                 whether the stored credential still works
 
@@ -264,6 +266,55 @@ shell script screen-scraping `gerrit`'s table had to do by hand:
 them, because that detail costs work per row. The stack is always asked for: a
 parent revision going stale is what a stack watch exists to notice.
 
+### Next steps
+
+A document ends with `help[]`, the next steps as complete commands, only where
+the next step is not obvious: after a list (`status`), after a write (`publish`,
+`message`, a `submit` the server did not report as merged), and whenever
+something was held back. A detail view that answers whole, such as `show`, and a
+confirmation, such as a merged `submit`, carry none, and the key is absent
+rather than empty. A failure's `help[]` is the command that fixes or diagnoses it,
+when one exists; it never says "see `--help`".
+
+Three rules hold for every line. It is a complete command carrying the `--host`,
+`--port`, `--user`, `--project` and `--rest-base` of the call it follows, so it
+reaches the same server (`--json` is a format, not a disambiguator, and is not
+carried). A value the caller has yet to choose is a placeholder, `<change>` or
+`<path>`; a value the record already holds, such as the numbers a `publish`
+created, is written concretely. And it never suggests what the tool does not do:
+no line names a vote, a label or a reviewer, and `submit` is named only for a
+change the server's own submit records mark submittable, never after the server
+refused one.
+
+After the `changes`, `labels` and `votes` tables, `status mine` on the stack
+above ends with:
+
+```text
+help[2]: Run `gerrit-axi show <change>... --comments` for the full review state of a listed change,Run `gerrit-axi submit <change>` for a change the server marks submittable: 200101
+```
+
+`status` also carries `more`, the server's word that `--limit` cut the page
+short; when it is true the last line of `help` repeats the call with the limit
+raised tenfold. `help` is prose for whoever reads the log, not a field to branch
+on.
+
+### Long bodies
+
+A cover message or inline comment can run to thousands of characters, and a
+bot's usually does. Both tables carry the body cut to its first 1000 characters
+by default, with the row saying so: `chars` is the whole body's length and
+`truncated` is `true`. No marker is mixed into the text, so `message` is always
+the body's own characters and a consumer can compare it. The cut is by
+character, never through a surrogate pair. `--full`, on `show` and `comments`,
+lifts it, and `help` names that call only when a body was actually cut:
+
+```text
+help[1]: Run `gerrit-axi comments 200103 --full` for the full text of 1 truncated body (longest 8432 chars)
+```
+
+`show --full` without `--messages` or `--comments` is refused: nothing it could
+apply to is emitted.
+
 ### The dashboard
 
 With no command, `gerrit-axi` prints content rather than usage: your open changes
@@ -304,8 +355,8 @@ dashboard says what is there, and `show` says where it stands.
 
 `help` names the next step: the `show` for what awaits you, the `status --query`
 for the rest of a truncated section (with a larger `--limit` when the server held
-rows back), the `publish` when nothing of yours is open.
-It is prose for whoever reads the log, not a field to branch on.
+rows back), the `publish` when nothing of yours is open. Its lines follow the
+rules in [Next steps](#next-steps).
 
 It costs four `gerrit query` round trips, run one at a time: a query row carries
 neither the attention set nor whether you are a reviewer or a CC, so the sections
@@ -326,18 +377,21 @@ $ gerrit-axi comments 200103
 ok: true
 op: comments
 count: 3
-comments[3]{change,file,line,patch_set,author,bot,bot_kind,unresolved,severity,id,in_reply_to,updated,message}:
-  200103,/PATCHSET_LEVEL,null,1,review-assistant,true,ai-review,false,null,stk0001,null,"2026-08-03T07:41:02.000Z",Reviewed patch set 1. Found 1 issue.
-  200103,src/main/java/com/acme/widget/RetryCeiling.java,18,1,review-assistant,true,ai-review,true,null,stk0002,null,"2026-08-03T07:41:03.000Z","[issue] The managed value is read before the provider is bound."
-  200103,src/main/java/com/acme/widget/RetryCeiling.java,18,1,alan,false,null,true,null,stk0003,stk0002,"2026-08-03T09:02:55.000Z","Right, and the parent change has to land first."
+comments[3]{change,file,line,patch_set,author,bot,bot_kind,unresolved,severity,id,in_reply_to,updated,message,chars,truncated}:
+  200103,/PATCHSET_LEVEL,null,1,review-assistant,true,ai-review,false,null,stk0001,null,"2026-08-03T07:41:02.000Z",Reviewed patch set 1. Found 1 issue.,36,false
+  200103,src/main/java/com/acme/widget/RetryCeiling.java,18,1,review-assistant,true,ai-review,true,null,stk0002,null,"2026-08-03T07:41:03.000Z","[issue] The managed value is read before the provider is bound.",63,false
+  200103,src/main/java/com/acme/widget/RetryCeiling.java,18,1,alan,false,null,true,null,stk0003,stk0002,"2026-08-03T09:02:55.000Z","Right, and the parent change has to land first.",47,false
+help[1]: Run `gerrit-axi show 200103 --messages all` for the cover messages and where each change stands
 ```
 
 `bot` is Gerrit's own `autogenerated:` tag convention and `bot_kind` is the
 suffix the bot declared, so a reviewer nobody has heard of is classified the
 first time it posts — see [Tier 1](#tier-1--derived-from-the-server). `severity`
 is `null` unless [tier-3 patterns](#tier-3--genuinely-local-convention) are
-configured. `gerrit-axi show --comments` adds this same table to a `show`, so one
-invocation can answer a whole watch.
+configured. `chars` and `truncated` are the body's size and whether it was cut to
+its preview, as [Long bodies](#long-bodies) describes. `gerrit-axi show
+--comments` adds this same table to a `show`, so one invocation can answer a
+whole watch.
 
 ### Publishing and submitting
 
@@ -386,9 +440,11 @@ published[3]{commit,change_id,stamped,subject,change,patch_set,current}:
 ```
 
 After `published` comes the same `changes` table `show` emits, read back from the
-server after the push. `current` is whether the commit just pushed is now that
-change's current patch set, and `stamped` whether this publish had to give it its
-Change-Id.
+server after the push, then `help`: the `show` that follows the new changes, the
+`status --query 'topic:...'` that lists a stack as the server does, and after a
+squash that made a patch set, the `message` that says what it changed. `current`
+is whether the commit just pushed is now that change's current patch set, and
+`stamped` whether this publish had to give it its Change-Id.
 
 `submit <change>` asks the server to submit one change. Whether it may is the
 server's decision alone, so nothing is checked first, and a refusal comes back in
@@ -401,14 +457,17 @@ op: submit
 error: "Gerrit refused to submit change 200102: Failed to submit 1 change due to the following problems:\nChange 200102: submit requirement 'Zebu-Herding' is unsatisfied"
 code: SUBMIT_REFUSED
 kind: transport
+help[1]: Run `gerrit-axi show 200102` for the labels blocking it (blocked_on)
 exit=5
 ```
 
 On success the record carries the change's `status` as the server reports it,
-normally `MERGED`. It takes one change per call because the server already
-decides what goes in with it — the changes it depends on, or the rest of its
-topic where the server submits topics whole — and submits those together or not
-at all.
+normally `MERGED`, and no hint: a merge is a confirmation. A refusal's `help` is
+the `show` that names what blocks the change; nothing suggests submitting again,
+and nothing here can cast the vote that would unblock it. It takes one change
+per call because the server already decides what goes in with it — the changes
+it depends on, or the rest of its topic where the server submits topics whole —
+and submits those together or not at all.
 
 ### Posting a change message
 
@@ -436,6 +495,7 @@ branch: main
 subject: Split the queue reader out of the daemon
 url: "https://gerrit.example.com/c/acme/apps/widget-console/+/200101"
 chars: 68
+help[1]: Run `gerrit-axi show 200101 --messages all` for the conversation including this message
 ```
 
 The change is looked up first, so the message is addressed to the patch set the
@@ -465,13 +525,18 @@ exit=5
 
 `code` is the raiser's machine-readable error code and `kind` is the class the
 exit code was chosen from (`usage`, `config`, `auth`, `transport`, `gerrit`,
-`internal`). `remedy` appears only when the raiser supplied one, and is a hint for
-whoever reads the log — not a field to branch on.
+`internal`). `remedy` appears only when the raiser supplied one, and `help` only
+when a command fixes or diagnoses the failure and the remedy does not already
+spell it: the call repeated with `--host <host>` when no host resolves, the
+`show` whose `missing` tells a gone change from a failed call after a 404, the
+commands themselves after an unknown command. Both are hints for whoever reads
+the log — not fields to branch on.
 
 A usage error is refused before git, ssh or the server is asked anything. An
 option the command does not take is named together with the options it does
 take, so the corrected call needs no `--help` first; a misspelling close to a
-valid option is pointed at that option.
+valid option is pointed at that option. A command called without what it needs
+gets its template as `help`, such as `gerrit-axi show <change>...`.
 
 ```console
 $ gerrit-axi show 200101 --comment; echo "exit=$?"
@@ -480,7 +545,7 @@ op: show
 error: "unknown option for show: --comment"
 code: BAD_USAGE
 kind: usage
-remedy: "Did you mean --comments? Options for show: --messages, --comments, --bots, --humans. Global options: --json, --host, --user, --port, --project, --rest-base, --help, --version."
+remedy: "Did you mean --comments? Options for show: --messages, --comments, --bots, --humans, --full. Global options: --json, --host, --user, --port, --project, --rest-base, --help, --version."
 exit=2
 ```
 
