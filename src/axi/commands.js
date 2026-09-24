@@ -181,8 +181,8 @@ export const DESCRIPTION = 'Gerrit code review for agents: what awaits you, chan
  * `dashboard --ambient` -- what a session-start hook prints (`gerrit-axi setup
  * hooks` installs one). It loads on every session, so it is the dashboard's
  * counts without its rows, and the server is asked only from a checkout whose
- * origin is a Gerrit remote: anywhere else the session learns the tool exists and how to start, and no query leaves the
- * machine.
+ * origin is a Gerrit remote: anywhere else the session learns the tool exists
+ * and how to start, and no query leaves the machine.
  *
  * It never fails, because a failing hook breaks the start of an unrelated
  * session: a server that cannot be reached, or a missing credential, is a line

@@ -273,7 +273,8 @@ export function sshFailure(conn, result) {
  * @param {{host: string, port: number, user: string}} conn
  * @param {string} query
  * @param {{limit?: number, runner?: import('./exec.js').Runner,
- *          include?: readonly string[]}} [opts]
+ *          include?: readonly string[], connectTimeoutSeconds?: number,
+ *          timeoutMs?: number}} [opts]
  * @returns {Promise<{rows: any[], stats: any|null}>}
  */
 export async function sshQuery(
