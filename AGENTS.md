@@ -86,16 +86,23 @@ fails if any of them is broken, which is the intended way to find out.
   in `src/core/changes.js`): over ssh the query is words of a remote command line,
   and Gerrit reads a word beginning with `-` as an option of `gerrit query`.
 - Every subcommand's options are listed in the top-level `--help` of its own
-  binary as well as in its usage string. Options that appear only in the
-  subcommand's help have been missed in practice; `test/review-state.test.js` and
-  `test/axi.test.js` check the top-level help mentions them.
+  binary as well as in its usage string (for `gerrit-axi`, its page in
+  `COMMAND_HELP`, which lists only that command's options). Options that appear
+  only in the subcommand's help have been missed in practice;
+  `test/review-state.test.js` and `test/axi.test.js` check the top-level help
+  mentions them.
 - `gerrit-axi`'s options have one catalogue, `COMMAND_OPTIONS` in
   `src/axi/args.js`: the parser rejects by it, the unknown-option record lists
   from it, and the help-coverage test reads it. An option a command does not take
   is refused by name with a `BAD_USAGE` record whose `remedy` lists that
   command's options and the global ones, before anything is asked of git or the
-  server; add an option there and in `USAGE` in `src/axi/main.js`, never at a
-  call site.
+  server; add an option there and in `USAGE` and `COMMAND_HELP` in
+  `src/axi/help.js`, never at a call site.
+- `bin/gerrit-axi.js` answers a bare `-v`/`-V`/`--version` from the leaf
+  `src/axi/version.js` (node builtins only) before it dynamically imports
+  `main.js`; a static import of `src/` there, or of `src/` in `version.js`, puts
+  the command graph back on every version probe. `test/axi.test.js` records the
+  modules a probe loads.
 - Next-step hints (`help[]`) are spelled only through `src/axi/hints.js`, which
   carries the call's connection overrides onto every command it names; the key is
   present only when a line applies. The rules for when a document gets one, and

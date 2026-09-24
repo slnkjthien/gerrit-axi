@@ -9,15 +9,19 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { COMMAND_OPTIONS, nearest } from '../src/axi/args.js';
 import { EXIT, main } from '../src/axi/main.js';
 import { Session } from '../src/core/session.js';
 import { encode } from '../src/axi/toon.js';
 import { errorRecord } from '../src/axi/output.js';
+import { tryFastPath } from '../src/axi/version.js';
 import { SRC_DIR, captureStream, fakeFetch, fakeRunner, fixture } from './helpers.js';
 
 const ENV = { XDG_CONFIG_HOME: '/nonexistent-xdg-for-tests', PATH: '' };
@@ -565,7 +569,7 @@ test('auth status reports the credential without a change to ask about', async (
 });
 
 test('help and version need no config, no credential and no network', async () => {
-  for (const argv of [['--help'], ['help'], ['show', '--help']]) {
+  for (const argv of [['--help'], ['-h'], ['help']]) {
     const stdout = captureStream();
     const code = await main(argv, {
       cwd: '/nowhere',
@@ -576,17 +580,148 @@ test('help and version need no config, no credential and no network', async () =
     });
     assert.equal(code, EXIT.ok, argv.join(' '));
     assert.match(stdout.text, /^gerrit-axi - /);
+    assert.ok(stdout.text.includes('commands, and the options each one takes:'), argv.join(' '));
   }
 
+  // The bare version, as every AXI prints it: no name in front, nothing after.
+  const { version } = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+  for (const argv of [['--version'], ['-v'], ['-V'], ['version'], ['show', '--version'], ['status', '-v']]) {
+    const stdout = captureStream();
+    const code = await main(argv, {
+      cwd: '/nowhere',
+      env: {},
+      stdout: stdout.stream,
+      stderr: captureStream().stream,
+      runner: fakeRunner([]),
+    });
+    assert.equal(code, EXIT.ok, argv.join(' '));
+    assert.equal(stdout.text, `${version}\n`, argv.join(' '));
+  }
+});
+
+test('each command\'s --help is that command\'s page alone: its options, arguments and examples', async () => {
+  const all = new Set(Object.values(COMMAND_OPTIONS).flatMap((o) => [...o.withValue, ...o.boolean]));
+  for (const [command, options] of Object.entries(COMMAND_OPTIONS)) {
+    const own = [...options.withValue, ...options.boolean];
+    const stdout = captureStream();
+    const code = await main([command, '--help'], {
+      cwd: '/nowhere',
+      env: {},
+      stdout: stdout.stream,
+      stderr: captureStream().stream,
+      runner: fakeRunner([]),
+    });
+    assert.equal(code, EXIT.ok, command);
+    const text = stdout.text;
+    assert.ok(text.startsWith(`gerrit-axi ${command} - `), `${command} --help should open with its own name`);
+    assert.match(text, /^usage: gerrit-axi /m, command);
+    for (const flag of own) {
+      assert.ok(text.includes(flag), `gerrit-axi ${command} --help must mention ${flag}`);
+    }
+    for (const flag of all) {
+      if (!own.includes(flag)) {
+        assert.equal(text.includes(flag), false, `gerrit-axi ${command} --help must not mention ${flag}`);
+      }
+    }
+    assert.equal(text.includes('commands, and the options each one takes:'), false,
+      `gerrit-axi ${command} --help must not be the full usage`);
+    const examples = text.slice(text.indexOf('\nexamples:\n')).split('\n').filter((l) => l.includes('gerrit-axi '));
+    assert.ok(text.includes('\nexamples:\n') && examples.length >= 2,
+      `gerrit-axi ${command} --help needs at least two examples`);
+
+    // -h and `help <command>` are the same page.
+    for (const argv of [[command, '-h'], ['help', command]]) {
+      const again = captureStream();
+      assert.equal(await main(argv, {
+        cwd: '/nowhere',
+        env: {},
+        stdout: again.stream,
+        stderr: captureStream().stream,
+        runner: fakeRunner([]),
+      }), EXIT.ok, argv.join(' '));
+      assert.equal(again.text, text, argv.join(' '));
+    }
+  }
+});
+
+test('help for a command that does not exist is a usage record naming the ones that do', async () => {
   const stdout = captureStream();
-  assert.equal(await main(['--version'], {
+  const stderr = captureStream();
+  const code = await main(['help', 'nope'], {
     cwd: '/nowhere',
     env: {},
     stdout: stdout.stream,
-    stderr: captureStream().stream,
+    stderr: stderr.stream,
     runner: fakeRunner([]),
-  }), EXIT.ok);
-  assert.match(stdout.text, /^gerrit-axi \d+\.\d+\.\d+$/m);
+  });
+  assert.equal(code, EXIT.usage);
+  assert.equal(stderr.text, '');
+  assert.match(stdout.text, /^ok: false$/m);
+  assert.match(stdout.text, /^code: BAD_USAGE$/m);
+  assert.ok(stdout.text.includes('`gerrit-axi help show`'));
+});
+
+test('the fast path answers only a version flag that is the whole argv', () => {
+  const { version } = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+  for (const flag of ['--version', '-v', '-V']) {
+    const stdout = captureStream();
+    assert.equal(tryFastPath([flag], stdout.stream), true, flag);
+    assert.equal(stdout.text, `${version}\n`, flag);
+  }
+  for (const argv of [[], ['version'], ['--help'], ['show', '--version'], ['--version', '--json']]) {
+    const stdout = captureStream();
+    assert.equal(tryFastPath(argv, stdout.stream), false, argv.join(' '));
+    assert.equal(stdout.text, '', argv.join(' '));
+  }
+});
+
+test('a version probe of the binary loads no module but the binary and the version leaf', () => {
+  // A loader hook in the child records every file module it loads. The probe is
+  // answered before main.js, core or any transport is imported; --help, which
+  // does need the command graph, is the control that shows the hook records.
+  const { version } = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
+  const dir = mkdtempSync(path.join(tmpdir(), 'gerrit-axi-fast-path-'));
+  try {
+    const log = path.join(dir, 'loaded.txt');
+    const hooks = path.join(dir, 'hooks.mjs');
+    writeFileSync(hooks, [
+      "import { appendFileSync } from 'node:fs';",
+      'export async function load(url, context, next) {',
+      `  if (url.startsWith('file:')) appendFileSync(${JSON.stringify(log)}, url + '\\n');`,
+      '  return next(url, context);',
+      '}',
+      '',
+    ].join('\n'));
+    const register = path.join(dir, 'register.mjs');
+    writeFileSync(register, [
+      "import { register } from 'node:module';",
+      `register(${JSON.stringify(pathToFileURL(hooks).href)});`,
+      '',
+    ].join('\n'));
+    const loaded = (/** @type {string[]} */ argv) => {
+      rmSync(log, { force: true });
+      const child = spawnSync(process.execPath,
+        ['--import', pathToFileURL(register).href, path.join(REPO_ROOT, 'bin', 'gerrit-axi.js'), ...argv],
+        { cwd: dir, env: { PATH: '' }, encoding: 'utf8' });
+      const files = readFileSync(log, 'utf8').trim().split('\n')
+        .map((url) => path.relative(REPO_ROOT, fileURLToPath(url)));
+      return { child, files };
+    };
+
+    for (const flag of ['--version', '-v', '-V']) {
+      const { child, files } = loaded([flag]);
+      assert.equal(child.status, 0, flag);
+      assert.equal(child.stdout, `${version}\n`, flag);
+      assert.equal(child.stderr, '', flag);
+      assert.deepEqual(files, [path.join('bin', 'gerrit-axi.js'), path.join('src', 'axi', 'version.js')], flag);
+    }
+
+    const { child, files } = loaded(['--help']);
+    assert.equal(child.status, 0);
+    assert.ok(files.includes(path.join('src', 'axi', 'main.js')), 'the control should load the command graph');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a bare invocation is the dashboard, not usage', async () => {

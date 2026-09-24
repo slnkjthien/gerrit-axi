@@ -152,7 +152,7 @@ test('both binaries exist and each is a thin shell over its own tier', () => {
     const file = path.join(REPO_ROOT, 'bin', bin);
     assert.ok(existsSync(file), `bin/${bin} should exist`);
     const text = readFileSync(file, 'utf8');
-    assert.match(text, new RegExp(`from '\\.\\./src/${tier}/main\\.js'`));
+    assert.match(text, new RegExp(`(?:from |import\\()'\\.\\./src/${tier}/main\\.js'`));
   }
 });
 

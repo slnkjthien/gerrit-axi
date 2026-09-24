@@ -10,8 +10,6 @@
  * what a consumer here reads. That is why the human `gerrit` has no `--json`.
  */
 
-import { readFile } from 'node:fs/promises';
-
 import { AuthError, ConfigError, GerritError, TransportError } from '../core/errors.js';
 import { createSession } from '../core/session.js';
 import { parseArgs } from './args.js';
@@ -25,8 +23,10 @@ import {
   opStatus,
   opSubmit,
 } from './commands.js';
+import { COMMAND_HELP, USAGE } from './help.js';
 import { COMMAND_TEMPLATES, errorHelp } from './hints.js';
 import { UsageError, errorRecord, serialize } from './output.js';
+import { VERSION, VERSION_FLAGS } from './version.js';
 
 /** Same codes the human CLI uses, so a caller can drive either interchangeably. */
 export const EXIT = {
@@ -38,93 +38,8 @@ export const EXIT = {
   transport: 5,
 };
 
-const USAGE = `gerrit-axi - Gerrit for agents: your dashboard, review state as records, publish, message, and submit
 
-usage: gerrit-axi [<command>] [options]
-
-With no command it prints your dashboard: the changes awaiting your attention,
-your work in progress, your outgoing reviews, the reviews you were asked for and
-the changes you are CCed on, grouped as Gerrit's own dashboard groups them, with
-a count per section and the next step to run.
-
-Records go to stdout: TOON by default, strict JSON with --json. A failure writes
-a typed error record to stdout in that same format, with ok: false, writes
-nothing to stderr, and exits non-zero, so a caller reads one stream and the
-exit code says what it holds. An option a command does not take is refused
-before anything is asked of git or the server (exit 2), and the record's remedy
-lists the options that command does take, naming the nearest when a misspelling
-is close.
-
-A record ends with help[] -- the next steps, as complete commands carrying this
-call's --host and its siblings -- only where the next step is not obvious: after
-a list, after publish, submit or message, and whenever something was held back.
-A detail view or a confirmation carries none. A failure's help[] is the command
-that fixes or diagnoses it, when there is one.
-
-commands, and the options each one takes:
-  dashboard                   the home view above, by name
-      --rows <n>              rows shown per section (default 10, max 100)
-  status                      changes awaiting your attention ("your turn")
-  status mine                 your open changes
-  status <change>...          specific change numbers
-  status --query '<query>'    an arbitrary Gerrit query
-      --limit <n>             maximum changes to fetch (default 100)
-  show <change>...            full review state, one record per change
-      --messages <n|all>      also emit that many cover messages (default 0)
-      --comments              also emit the inline comments
-      --bots | --humans       with --comments: only / never machine-generated
-      --full                  whole message and comment bodies; without it a
-                              body over 1000 characters is cut to its first
-                              1000, its row says chars (the total) and
-                              truncated: true, and help[] names this option
-  comments <change>...        inline review comments on every change named
-      --bots | --humans       only / never machine-generated
-      --full                  whole comment bodies, as for show
-  auth status                 whether the stored credential still works
-  publish --stack --topic <t> every commit on HEAD since it left the server's
-                              branch becomes its own change, under topic <t>
-  publish --squash            those commits become one change
-      --branch <b>            the branch to propose against (default: the
-                              server's default branch)
-  submit <change>             ask the server to submit one change; a refusal is
-                              reported in the server's own words
-  message <change>            post one change-level message on the change's
-                              current patch set; the text is read from stdin
-      --file <path>           ...or from this file. Never from argv. No label,
-                              no vote: the record names the patch set it landed on
-
-global options:
-  --json          strict JSON instead of TOON
-  --host <h>      override the resolved Gerrit host
-  --user <u>      override the resolved Gerrit username
-  --port <p>      override the Gerrit SSH port
-  --project <p>   override the resolved project
-  --rest-base <u> override the REST base URL (e.g. https://gerrit.example.com)
-  -h, --help      show this help
-  -V, --version   print the version
-
-Every read answers about a whole list of changes in one invocation. Per-change
-scalars arrive in the 'changes' table; anything per-label arrives in 'labels' and
-'votes', keyed by change number and label name, so a label the server gains adds
-a row and moves no column.
-
-Host, port, user and project are resolved from the 'origin' git remote of the
-current directory first, then from GERRIT_HOST / GERRIT_USER / GERRIT_PORT, then
-from the config file. There is no built-in default host.
-
-Exit codes: 0 success, 1 other error, 2 usage, 3 configuration, 4 authentication,
-5 transport.
-
-publish keeps every Change-Id a commit already carries, verbatim: the same
-Change-Id is what makes a push a new patch set of the same change. A commit
-without one gets one stamped into its message, and the local branch is rewritten
-to keep it (messages only; the working tree is untouched).
-
-It publishes, posts a change message, and submits, and it cannot vote: no command
-records a label, and whether a change may be submitted is decided by the server
-alone.`;
-
-/** Each command's options are `COMMAND_OPTIONS` in args.js; USAGE above lists them too. */
+/** Each command's options are `COMMAND_OPTIONS` in args.js; help.js lists them too. */
 const OPS = {
   dashboard: opDashboard,
   status: opStatus,
@@ -169,12 +84,27 @@ export async function main(argv, io = {}) {
   };
 
   // Help and version must work with no config, no credential and no network.
-  if (first === '--help' || first === '-h' || first === 'help') {
+  if (first === '--help' || first === '-h') {
     out(USAGE);
     return EXIT.ok;
   }
-  if (first === '--version' || first === '-V' || first === 'version') {
-    out(await packageVersion());
+  if (first === 'help') {
+    const [topic] = tail;
+    if (topic === undefined) {
+      out(USAGE);
+      return EXIT.ok;
+    }
+    if (Object.hasOwn(COMMAND_HELP, topic)) {
+      out(COMMAND_HELP[topic]);
+      return EXIT.ok;
+    }
+    const help = [`Run one of: ${Object.keys(COMMAND_HELP).map((c) => `\`gerrit-axi help ${c}\``).join(', ')}`];
+    return fail(new UsageError(`no help for unknown command: ${topic}`, undefined, help), undefined);
+  }
+  // A bare version flag is normally answered by bin/gerrit-axi.js before this
+  // module loads; this is the same answer for a caller that imports main().
+  if (first === 'version' || VERSION_FLAGS.includes(/** @type {any} */ (first))) {
+    out(VERSION);
     return EXIT.ok;
   }
 
@@ -203,11 +133,11 @@ export async function main(argv, io = {}) {
       throw new UsageError(`options come after the command: gerrit-axi ${fixed}`);
     }
     if (args.help) {
-      out(USAGE);
+      out(COMMAND_HELP[op]);
       return EXIT.ok;
     }
     if (args.version) {
-      out(await packageVersion());
+      out(VERSION);
       return EXIT.ok;
     }
     const session = await createSession({
@@ -235,13 +165,4 @@ function exitFor(error) {
   if (error instanceof TransportError) return EXIT.transport;
   if (error instanceof GerritError) return EXIT.error;
   return EXIT.error;
-}
-
-/**
- * @returns {Promise<string>}
- */
-async function packageVersion() {
-  const url = new URL('../../package.json', import.meta.url);
-  const pkg = JSON.parse(await readFile(url, 'utf8'));
-  return `${pkg.name} ${pkg.version}`;
 }
