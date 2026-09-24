@@ -50,7 +50,7 @@ file (npm 12 refuses a remote tarball URL by default, `allow-remote=none`):
 ```sh
 curl -LO https://github.com/slnkjthien/gerrit-axi/releases/download/v<version>/gerrit-axi-<version>.tgz
 npm install -g ./gerrit-axi-<version>.tgz
-gerrit-axi --version    # prints: gerrit-axi <version>
+gerrit-axi --version    # prints: <version>
 ```
 
 That installs both binaries: `gerrit` for a person, `gerrit-axi` for an agent.
@@ -198,8 +198,10 @@ gerrit-axi message <change>            post one change-level message on the curr
 ```
 
 Global options: `--json`, `--host`, `--user`, `--port`, `--project`,
-`--rest-base`, `-h/--help`, `-V/--version`. As with `gerrit`, every option is
-listed in `gerrit-axi --help` too. An option a command does not take is refused,
+`--rest-base`, `-h/--help`, `-v/-V/--version` (the bare version). As with
+`gerrit`, every option is listed in `gerrit-axi --help` too, and
+`gerrit-axi <command> --help` prints only that command's options, arguments and
+examples. An option a command does not take is refused,
 never dropped, and the error record lists the options it does take — see
 [Failures](#failures).
 

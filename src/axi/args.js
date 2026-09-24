@@ -16,7 +16,7 @@ import { UsageError } from './output.js';
 
 /** Applies to every subcommand; overrides every config tier. */
 const GLOBAL_WITH_VALUE = new Set(['--host', '--user', '--port', '--project', '--rest-base']);
-const GLOBAL_BOOLEAN = new Set(['--json', '--help', '-h', '--version', '-V']);
+const GLOBAL_BOOLEAN = new Set(['--json', '--help', '-h', '--version', '-V', '-v']);
 
 /** The global options as an unknown-option record lists them: long forms only. */
 const GLOBAL_OPTIONS = ['--json', '--host', '--user', '--port', '--project', '--rest-base', '--help', '--version'];
@@ -24,7 +24,8 @@ const GLOBAL_OPTIONS = ['--json', '--host', '--user', '--port', '--project', '--
 /**
  * Every command's own options, the one catalogue: the parser rejects by it, the
  * unknown-option record lists from it, and test/axi.test.js checks that the
- * top-level help names all of it. Add an option here, and in USAGE in main.js.
+ * top-level help and that command's own help name all of it. Add an option
+ * here, and in USAGE and COMMAND_HELP in help.js.
  *
  * @type {Record<string, {withValue: readonly string[], boolean: readonly string[]}>}
  */
@@ -112,7 +113,7 @@ export function parseArgs(argv, command) {
     }),
     json: flags['--json'] === true,
     help: flags['--help'] === true || flags['-h'] === true,
-    version: flags['--version'] === true || flags['-V'] === true,
+    version: flags['--version'] === true || flags['-V'] === true || flags['-v'] === true,
   };
 }
 
