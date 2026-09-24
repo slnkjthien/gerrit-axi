@@ -84,22 +84,9 @@ export async function main(argv, io = {}) {
   };
 
   // Help and version must work with no config, no credential and no network.
-  if (first === '--help' || first === '-h') {
+  if (first === '--help' || first === '-h' || first === 'help') {
     out(USAGE);
     return EXIT.ok;
-  }
-  if (first === 'help') {
-    const [topic] = tail;
-    if (topic === undefined) {
-      out(USAGE);
-      return EXIT.ok;
-    }
-    if (Object.hasOwn(COMMAND_HELP, topic)) {
-      out(COMMAND_HELP[topic]);
-      return EXIT.ok;
-    }
-    const help = [`Run one of: ${Object.keys(COMMAND_HELP).map((c) => `\`gerrit-axi help ${c}\``).join(', ')}`];
-    return fail(new UsageError(`no help for unknown command: ${topic}`, undefined, help), undefined);
   }
   // A bare version flag is normally answered by bin/gerrit-axi.js before this
   // module loads; this is the same answer for a caller that imports main().
@@ -133,7 +120,7 @@ export async function main(argv, io = {}) {
       throw new UsageError(`options come after the command: gerrit-axi ${fixed}`);
     }
     if (args.help) {
-      out(COMMAND_HELP[op]);
+      out(named ? COMMAND_HELP[op] : USAGE);
       return EXIT.ok;
     }
     if (args.version) {

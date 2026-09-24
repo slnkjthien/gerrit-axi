@@ -2,7 +2,7 @@
 
 /**
  * The help text: the full usage for `gerrit-axi --help`, and one concise page per
- * command for `gerrit-axi <command> --help` (or `gerrit-axi help <command>`).
+ * command for `gerrit-axi <command> --help`.
  *
  * Both list every option a command takes, from `COMMAND_OPTIONS` in args.js;
  * test/axi.test.js holds each page to that catalogue. A command page names its

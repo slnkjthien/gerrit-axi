@@ -569,7 +569,7 @@ test('auth status reports the credential without a change to ask about', async (
 });
 
 test('help and version need no config, no credential and no network', async () => {
-  for (const argv of [['--help'], ['-h'], ['help']]) {
+  for (const argv of [['--help'], ['-h'], ['help'], ['--json', '--help'], ['--host', 'gerrit.example.com', '-h']]) {
     const stdout = captureStream();
     const code = await main(argv, {
       cwd: '/nowhere',
@@ -629,8 +629,8 @@ test('each command\'s --help is that command\'s page alone: its options, argumen
     assert.ok(text.includes('\nexamples:\n') && examples.length >= 2,
       `gerrit-axi ${command} --help needs at least two examples`);
 
-    // -h and `help <command>` are the same page.
-    for (const argv of [[command, '-h'], ['help', command]]) {
+    // -h is the same page.
+    for (const argv of [[command, '-h']]) {
       const again = captureStream();
       assert.equal(await main(argv, {
         cwd: '/nowhere',
@@ -642,23 +642,6 @@ test('each command\'s --help is that command\'s page alone: its options, argumen
       assert.equal(again.text, text, argv.join(' '));
     }
   }
-});
-
-test('help for a command that does not exist is a usage record naming the ones that do', async () => {
-  const stdout = captureStream();
-  const stderr = captureStream();
-  const code = await main(['help', 'nope'], {
-    cwd: '/nowhere',
-    env: {},
-    stdout: stdout.stream,
-    stderr: stderr.stream,
-    runner: fakeRunner([]),
-  });
-  assert.equal(code, EXIT.usage);
-  assert.equal(stderr.text, '');
-  assert.match(stdout.text, /^ok: false$/m);
-  assert.match(stdout.text, /^code: BAD_USAGE$/m);
-  assert.ok(stdout.text.includes('`gerrit-axi help show`'));
 });
 
 test('the fast path answers only a version flag that is the whole argv', () => {
