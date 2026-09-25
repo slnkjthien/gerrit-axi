@@ -14,7 +14,7 @@
  */
 
 import { resolveConfig } from './config.js';
-import { clearToken, detectBackend, loadToken, requireToken } from './credentials.js';
+import { clearToken, detectBackend, hasStoredToken, loadToken, requireToken } from './credentials.js';
 import { runCommand } from './exec.js';
 
 /** @typedef {import('./config.js').ResolvedConfig} ResolvedConfig */
@@ -87,6 +87,11 @@ export class Session {
   /** @returns {Promise<{token: string, backend: string, location: string|null}|null>} */
   peekToken() {
     return loadToken(this.credentialId);
+  }
+
+  /** @returns {Promise<boolean>} whether a credential is stored, decrypting none */
+  hasStoredToken() {
+    return hasStoredToken(this.credentialId);
   }
 
   /** @returns {Promise<import('./credentials.js').Backend>} */

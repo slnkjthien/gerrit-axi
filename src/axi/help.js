@@ -37,6 +37,10 @@ that fixes or diagnoses it, when there is one.
 commands, and the options each one takes:
   dashboard                   the home view above, by name
       --rows <n>              rows shown per section (default 10, max 100)
+      --ambient               what a session-start hook prints: this binary,
+                              one line on what it is, and a count per section,
+                              asked of the server only in a Gerrit checkout;
+                              never fails, exit 0
   status                      changes awaiting your attention ("your turn")
   status mine                 your open changes
   status <change>...          specific change numbers
@@ -65,6 +69,17 @@ commands, and the options each one takes:
                               current patch set; the text is read from stdin
       --file <path>           ...or from this file. Never from argv. No label,
                               no vote: the record names the patch set it landed on
+  setup hooks                 opt in to session integration: register
+                              'gerrit-axi dashboard --ambient' as a session-start
+                              hook for Claude Code, Codex and OpenCode, in your
+                              user config; repeating it changes nothing, and it
+                              repairs a moved binary. It first checks the
+                              connection and sign-in, and names the human command
+                              that fixes what is missing
+      --remove                take out only those hooks, leaving every other
+                              hook and Codex's shared hooks flag alone
+  setup config                save the host, port and user this checkout's origin
+                              resolves to in the config file; never overwrites one
 
 global options:
   --json          strict JSON instead of TOON
@@ -114,6 +129,10 @@ count per section. Takes no arguments.
 
 options:
   --rows <n>              rows shown per section (default 10, max 100)
+  --ambient               what a session-start hook prints: this binary, one
+                          line on what it is, and a count per section, asked of
+                          the server only in a Gerrit checkout; never fails,
+                          exit 0
 
 global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
   --rest-base <u> (see gerrit-axi --help)
@@ -121,6 +140,7 @@ global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
 examples:
   gerrit-axi
   gerrit-axi dashboard --rows 25
+  gerrit-axi dashboard --ambient
   gerrit-axi --json`,
   status: `gerrit-axi status - one row per change, with its readiness and what blocks it
 
@@ -264,4 +284,33 @@ global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
 examples:
   echo 'Rebased onto the fix; ready for another look.' | gerrit-axi message 12345
   gerrit-axi message 12345 --file reply.txt`,
+  setup: `gerrit-axi setup - opt in to session integration, in your own user config
+
+usage: gerrit-axi setup hooks [--remove]
+       gerrit-axi setup config
+
+arguments:
+  hooks                   register gerrit-axi's ambient dashboard as a
+                          session-start hook for Claude Code, Codex and
+                          OpenCode; repeating it changes nothing, and it repairs
+                          a moved binary. It first checks the connection and
+                          sign-in, and names the human command that fixes what
+                          is missing
+  config                  save the host, port and user this checkout's origin
+                          resolves to in the config file; never overwrites one
+
+options:
+  --remove                with hooks: take out only gerrit-axi's own hooks,
+                          leaving every other hook and Codex's shared hooks
+                          flag alone
+
+Nothing is written to an agent's configuration unless you run this.
+
+global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
+  --rest-base <u> (see gerrit-axi --help)
+
+examples:
+  gerrit-axi setup hooks
+  gerrit-axi setup hooks --remove
+  gerrit-axi setup config`,
 };

@@ -438,16 +438,18 @@ export function buildQuery(spec) {
  *
  * @param {import('./session.js').Session} session
  * @param {QuerySpec|string} spec
- * @param {{limit?: number, include?: readonly string[]}} [opts]
+ * @param {{limit?: number, include?: readonly string[], connectTimeoutSeconds?: number,
+ *          timeoutMs?: number}} [opts]
  * @returns {Promise<ChangePage>}
  */
-export async function queryChangePage(session, spec, { limit = 100, include = [] } = {}) {
+export async function queryChangePage(session, spec, opts = {}) {
+  const { limit = 100, include = [], connectTimeoutSeconds, timeoutMs } = opts;
   const query = typeof spec === 'string' ? spec : buildQuery(spec);
   const { config, runner } = session;
   const { rows, stats } = await sshQuery(
     { host: config.host, port: config.port, user: config.user },
     query,
-    { limit, runner, include },
+    { limit, runner, include, connectTimeoutSeconds, timeoutMs },
   );
   return {
     changes: rows.filter((row) => row && row.project !== undefined).map(normalizeChange),

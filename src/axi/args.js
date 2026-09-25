@@ -30,7 +30,7 @@ const GLOBAL_OPTIONS = ['--json', '--host', '--user', '--port', '--project', '--
  * @type {Record<string, {withValue: readonly string[], boolean: readonly string[]}>}
  */
 export const COMMAND_OPTIONS = {
-  dashboard: { withValue: ['--rows'], boolean: [] },
+  dashboard: { withValue: ['--rows'], boolean: ['--ambient'] },
   status: { withValue: ['--query', '--limit'], boolean: [] },
   show: { withValue: ['--messages'], boolean: ['--comments', '--bots', '--humans', '--full'] },
   comments: { withValue: [], boolean: ['--bots', '--humans', '--full'] },
@@ -38,6 +38,7 @@ export const COMMAND_OPTIONS = {
   publish: { withValue: ['--topic', '--branch'], boolean: ['--stack', '--squash'] },
   submit: { withValue: [], boolean: [] },
   message: { withValue: ['--file'], boolean: [] },
+  setup: { withValue: [], boolean: ['--remove'] },
 };
 
 /**

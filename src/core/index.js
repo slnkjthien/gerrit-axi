@@ -43,6 +43,7 @@ export {
   normalizeSeverityPatterns,
   readConfigFile,
   resolveConfig,
+  saveConnection,
 } from './config.js';
 
 export {
@@ -58,6 +59,7 @@ export { authStatus, loginWithToken, logout, tokenSettingsUrl } from './auth.js'
 export {
   clearToken,
   detectBackend,
+  hasStoredToken,
   loadToken,
   requireToken,
   saveToken,

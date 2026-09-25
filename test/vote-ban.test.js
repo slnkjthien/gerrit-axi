@@ -111,6 +111,7 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     { argv: ['submit', '200101'], log: '', head: c },
     { argv: ['message', '200101'], log: '', head: c, stdin: hostile },
     { argv: [], log: '', head: c },
+    { argv: ['dashboard', '--ambient'], log: '', head: c },
     { argv: ['status'], log: '', head: c },
     { argv: ['show', '200101', '200102', '200103', '--comments'], log: '', head: c },
     { argv: ['comments', '200102', '200103'], log: '', head: c },

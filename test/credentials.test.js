@@ -18,6 +18,7 @@ import test from 'node:test';
 import {
   clearToken,
   detectBackend,
+  hasStoredToken,
   loadToken,
   requireToken,
   saveToken,
@@ -150,6 +151,7 @@ async function stubSecretTool({ dir, failStore = false }) {
       ? `  store) cat > /dev/null; exit 1 ;;`
       : `  store) cat > "${state}/secret"; exit 0 ;;`,
     `  lookup) if [ -s "${state}/secret" ]; then cat "${state}/secret"; exit 0; else exit 1; fi ;;`,
+    `  search) if [ -s "${state}/secret" ]; then echo '[/org/freedesktop/secrets/collection/login/1]'; fi; exit 0 ;;`,
     `  clear) rm -f "${state}/secret"; exit 0 ;;`,
     'esac',
     'exit 2',
@@ -177,6 +179,21 @@ async function stubSecretTool({ dir, failStore = false }) {
     },
   };
 }
+
+test('hasStoredToken finds a keyring item without retrieving its secret', async (t) => {
+  const home = await tempHome();
+  t.after(home.cleanup);
+  const stub = await stubSecretTool({ dir: home.dir });
+  const env = { XDG_CONFIG_HOME: home.dir, PATH: stub.bin };
+  const id = { host: 'gerrit.example.com', user: 'ada', env };
+
+  assert.equal(await hasStoredToken(id), false);
+  await saveToken(PLACEHOLDER_TOKEN, id);
+  const before = await stub.argv();
+  assert.equal(await hasStoredToken(id), true);
+  const calls = (await stub.argv()).slice(before.length).trim().split('\n');
+  assert.deepEqual(calls.map((line) => line.split(' ')[0]), ['search']);
+});
 
 test('the keyring backend is preferred when available', async (t) => {
   const home = await tempHome();

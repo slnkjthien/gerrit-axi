@@ -120,6 +120,33 @@ export async function readConfigFile({ env = process.env, readFile } = {}) {
 }
 
 /**
+ * Write host, port and user to the config file, only when there is no config
+ * file yet: an existing one is never overwritten or merged into, whatever it
+ * holds, so a hand-written file is safe from a repeated call. Nothing else is
+ * written -- no project, which belongs to a repo, and never a credential.
+ *
+ * @param {{host: string, port: number, user: string}} connection
+ * @param {{env?: NodeJS.ProcessEnv}} [opts]
+ * @returns {Promise<{path: string, written: boolean}>}
+ */
+export async function saveConnection({ host, port, user }, { env = process.env } = {}) {
+  const file = configPath(env);
+  const text = `${JSON.stringify({ host, port, user }, null, 2)}\n`;
+  try {
+    await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+    // `wx` fails if the file exists, so the check and the write are one step.
+    await fs.writeFile(file, text, { flag: 'wx' });
+    return { path: file, written: true };
+  } catch (err) {
+    if (/** @type {any} */ (err)?.code === 'EEXIST') return { path: file, written: false };
+    throw new ConfigError(`could not write ${file}: ${/** @type {Error} */ (err).message}`, {
+      code: 'BAD_CONFIG_FILE',
+      cause: err,
+    });
+  }
+}
+
+/**
  * Validate the tier-3 severity block. Absent or empty means "no severity" --
  * the out-of-the-box behaviour is to print comments raw with no severity column.
  *
