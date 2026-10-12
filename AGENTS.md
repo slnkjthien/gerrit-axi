@@ -53,7 +53,7 @@ fails if any of them is broken, which is the intended way to find out.
   REST endpoints. State guards and readback live in `src/core/ready.js`, with
   fixed REST writes in `src/core/rest.js`; the human `gerrit` stays read-only.
   Only `src/core/message.js` may build `gerrit review` argv, with no parameter
-  for arbitrary options or JSON; `src/axi/help.js` may name the command in prose.
+  for arbitrary options or JSON.
   A REST `/review` or `/votes` path, `set-reviewers`, `set-topic`, and a label option on a push may not appear anywhere.
   The layering test's whole-source scan exempts only the message module for
   spelling the command in its implementation.

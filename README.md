@@ -3,7 +3,8 @@
 A Gerrit CLI. It answers the questions a reviewer actually asks — *whose turn is
 it*, *what is blocking this change*, and *where does this one change stand* — and
 prints the review comments, inline and cover, including the machine-generated
-ones. For an agent, it also publishes changes, activates work-in-progress changes, posts a change message, and submits them.
+ones.
+For agent commands, see [The agent tier](docs/agent-tier.md).
 
 Two binaries over one library: `gerrit` renders for a person, `gerrit-axi` emits
 records for an agent. They are siblings, not wrappers — see
@@ -11,7 +12,14 @@ records for an agent. They are siblings, not wrappers — see
 
 **It cannot vote.**
 `gerrit`, for a person, is read-only: every operation is a query.
-`gerrit-axi`, for an agent, adds five writes: `publish`, one push to `refs/for/<branch>`; `ready`, activation of a work-in-progress change; `wip`, marking an existing change work in progress; `message`, one change-level message with no label; and `submit`, one REST call the server may refuse.
+`gerrit-axi` adds five writes for agents:
+
+- `publish` pushes to `refs/for/<branch>`.
+- `ready` activates a work-in-progress change.
+- `wip` marks an existing change work in progress.
+- `message` posts one change-level message with no label.
+- `submit` makes one REST call the server may refuse.
+
 It never votes, writes an inline comment, sets reviewers, or abandons.
 Gerrit evaluates its submit rules on the server and refuses a change without the required approvals.
 The tests forbid REST review endpoints and label push options throughout the codebase.
@@ -19,7 +27,13 @@ Only `message.js` may build the SSH review command, with fixed options and a
 runtime test that pins its arguments and payload.
 The binding control remains the label permissions your server grants the account an agent uses.
 
-Use `gerrit-axi publish --squash --wip` or `gerrit-axi publish --stack --topic demo --wip` to publish work in progress.
+Publish work in progress with either shape:
+
+```sh
+gerrit-axi publish --squash --wip
+gerrit-axi publish --stack --topic demo --wip
+```
+
 Use `gerrit-axi ready 12345 --patch-set 2` to activate an open change without a new patch set.
 Use `gerrit-axi wip 12345 --patch-set 2` to mark an existing change work in progress over REST.
 See [Work in progress](docs/agent-tier.md#work-in-progress) for transport,

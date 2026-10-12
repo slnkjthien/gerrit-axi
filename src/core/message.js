@@ -5,9 +5,9 @@
  *
  * This is the only module that builds the remote command it uses.
  * That command can also vote, submit, abandon, restore and rebase.
- * The source scan in test/layering.test.js permits only this builder and a
- * help-text mention, which is why this module builds its argv in a
- * single function with no parameter for a flag: `buildMessageArgs` takes a
+ * The source scan in test/layering.test.js permits only this module,
+ * which builds its argv in a single function with no parameter for a flag.
+ * `buildMessageArgs` takes a
  * connection, a change, a patch set and a text, and emits a fixed shape whose
  * only option is `--message`. Nothing a caller passes can become an option,
  * because the text travels as one quoted word. test/vote-ban.test.js drives the

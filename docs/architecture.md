@@ -77,7 +77,8 @@ Three channels, each necessary:
   pays for a hundred message timelines.
 
   The same channel carries the change-message write.
-  `buildMessageArgs` in `src/core/message.js` builds `gerrit review --message <text> <change>,<patchset>`, with no parameter for another option.
+  `buildMessageArgs` in `src/core/message.js` builds the fixed message command.
+  It has no parameter for another option.
   The text travels as one single-quoted word, so it cannot become another option or a shell command.
   See [Work in progress](agent-tier.md#work-in-progress) for activation guards
   and readback over REST.

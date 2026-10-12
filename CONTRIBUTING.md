@@ -54,7 +54,7 @@ injectable, the real code paths run against them. Covered in particular:
   and state flag arriving as one quoted word through a model of Gerrit's own
   tokeniser, the text taken from stdin or a file and never from argv, an empty
   text refused before any round trip, and a refusal carried in the server's words
-- the layering and no-voting invariants documented in [AGENTS.md](https://github.com/slnkjthien/gerrit-axi/blob/main/AGENTS.md),
+- the layering and no-voting invariants documented in [AGENTS.md](AGENTS.md),
   enforced by `test/layering.test.js` and its runtime complements
 
 The one thing the suite cannot check on a machine without them is the
