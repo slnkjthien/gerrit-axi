@@ -3,12 +3,12 @@
 /**
  * The vote ban, at runtime. Every agent-tier operation -- both publish shapes,
  * submit (including a repeat on a change that has merged, which reads the change
- * back), ready, wip, message, and the reads -- is driven end to end through a fake runner
- * and a fake fetch, and every subprocess call and HTTP request it makes is
- * checked for a way to vote. The message operation is the one that runs the
- * command that can vote, so its argv is pinned element by element: the text it
- * was given is stuffed with every scoring and state flag, and must leave the
- * process as one quoted word that is none of them.
+ * back), ready, wip, message, and the reads -- is driven end to end through a
+ * fake runner and a fake fetch, and every subprocess call and HTTP request it
+ * makes is checked for a way to vote. The message operation is the one that
+ * runs the command that can vote, so its argv is pinned element by element: the
+ * text it was given is stuffed with every scoring and state flag, and must leave
+ * the process as one quoted word that is none of them.
  *
  * This is not a duplicate of the vote-ban test in test/layering.test.js; the two
  * catch different failures. That one reads the source and makes a universal
