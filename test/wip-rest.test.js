@@ -11,7 +11,7 @@ const CHANGE = { _number: 12345, status: 'NEW', current_revision: REVISION,
   revisions: { [REVISION]: { _number: 2 } } };
 
 async function run(t, op, { before, after, argv = [], status = 200, readStatus = 200,
-  missingToken = false, failure = false, json = true, body = '' } = {}) {
+  missingToken = false, failure = false, json = true, body = '', bodyFailureAt } = {}) {
   const wip = op === 'wip';
   before ??= { ...CHANGE, work_in_progress: !wip };
   after ??= { ...CHANGE, ...(wip ? { work_in_progress: true } : {}) };
@@ -25,7 +25,10 @@ async function run(t, op, { before, after, argv = [], status = 200, readStatus =
     return {
       status: init.method === 'POST' ? status : readStatus,
       headers: new Map(),
-      text: async () => init.method === 'POST' ? body : ")]}'\n" + JSON.stringify(reads++ === 0 ? before : after),
+      text: async () => {
+        if (calls.length === bodyFailureAt) throw new Error('response body connection lost');
+        return init.method === 'POST' ? body : ")]}'\n" + JSON.stringify(reads++ === 0 ? before : after);
+      },
     };
   };
   const stdout = captureStream();
@@ -117,6 +120,23 @@ for (const op of ['ready', 'wip']) {
     const bad = await run(t, op, { readStatus: 401 });
     assert.equal(bad.record.code, 'UNAUTHORIZED');
     assert.equal(bad.calls.length, 1);
+  });
+
+  test(`${op} REST body failures retain transport errors and write uncertainty`, async (t) => {
+    for (const bodyFailureAt of [1, 2, 3]) {
+      const result = await run(t, op, { bodyFailureAt });
+      assert.equal(result.code, EXIT.transport);
+      assert.equal(result.record.ok, false);
+      assert.equal(result.record.code, 'HTTP_ERROR');
+      assert.deepEqual(result.calls.map((call) => call.method),
+        ['GET', 'POST', 'GET'].slice(0, bodyFailureAt));
+      if (bodyFailureAt > 1) {
+        assert.match(result.record.remedy,
+          new RegExp(`Inspect the change before retrying; the ${op} write may already have taken effect`));
+      } else {
+        assert.equal(result.record.remedy, undefined);
+      }
+    }
   });
 
   test(`${op} REST preserves server refusal details in CLI errors`, async (t) => {

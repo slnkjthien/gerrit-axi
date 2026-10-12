@@ -97,9 +97,8 @@ export function basicAuthHeader(user, token) {
 async function authorizedFetch(target, apiPath, init) {
   const doFetch = target.fetchImpl ?? globalThis.fetch;
   const url = `${target.restBase.replace(/\/+$/, '')}${apiPath}`;
-  let res;
   try {
-    res = await doFetch(url, {
+    const res = await doFetch(url, {
       ...init,
       headers: {
         ...init.headers,
@@ -110,10 +109,10 @@ async function authorizedFetch(target, apiPath, init) {
       // Never follow a redirect while carrying an Authorization header.
       redirect: 'manual',
     });
+    return { status: res.status, body: await res.text(), headers: res.headers };
   } catch (err) {
     throw new TransportError(`could not reach ${url}`, { code: 'HTTP_ERROR', cause: err });
   }
-  return { status: res.status, body: await res.text(), headers: res.headers };
 }
 
 /**
