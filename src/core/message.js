@@ -3,11 +3,11 @@
 /**
  * Posting one change-level message to one change.
  *
- * This is the third write, and the only module in the codebase that spells the
- * remote command it uses. That command can also vote, submit, abandon, restore
- * and rebase, which is why every other module is forbidden to name it
- * (test/layering.test.js scans for it) and why this one builds its argv in a
- * single function with no parameter for a flag: `buildMessageArgs` takes a
+ * This is the only module that builds the remote command it uses.
+ * That command can also vote, submit, abandon, restore and rebase.
+ * The source scan in test/layering.test.js permits only this module,
+ * which builds its argv in a single function with no parameter for a flag.
+ * `buildMessageArgs` takes a
  * connection, a change, a patch set and a text, and emits a fixed shape whose
  * only option is `--message`. Nothing a caller passes can become an option,
  * because the text travels as one quoted word. test/vote-ban.test.js drives the

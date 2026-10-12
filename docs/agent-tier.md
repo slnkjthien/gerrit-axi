@@ -33,7 +33,13 @@ gerrit-axi auth status                 whether the stored credential still works
 
 gerrit-axi publish --stack --topic <t> each commit on HEAD becomes its own change, under topic <t>
 gerrit-axi publish --squash            the commits on HEAD become one change
+    --wip                              publish as work in progress and verify by readback
     --branch <b>                       the branch to propose against (default: the server's default)
+
+gerrit-axi ready <change>              activate without a new patch set
+gerrit-axi wip <change>                mark an existing change WIP via REST
+    --patch-set <n>                    expected current patch set
+    --revision <sha>                   expected full commit ID
 
 gerrit-axi submit <change>             ask the server to submit one change
 
@@ -159,7 +165,7 @@ A document ends with `help[]`, the next steps as complete commands, only where
 the next step is not obvious: after a list (`status`), after a write (`publish`,
 `message`, a `submit` the server did not report as merged), after a `watch`, and
 whenever something was held back. A detail view that answers whole, such as `show`, and a
-confirmation, such as a merged `submit`, carry none, and the key is absent
+confirmation, such as `ready` or a merged `submit`, carry none, and the key is absent
 rather than empty. A failure's `help[]` is the command that fixes or diagnoses it,
 when one exists; it never says "see `--help`".
 
@@ -590,4 +596,59 @@ code: BAD_USAGE
 kind: usage
 remedy: "Did you mean --comments? Options for show: --messages, --comments, --bots, --humans, --full. Global options: --json, --host, --user, --port, --project, --rest-base, --help, --version."
 exit=2
+```
+
+## Work in progress
+
+Add `--wip` to either publish shape to send Gerrit's fixed `wip` push option.
+It accompanies the validated topic, if any.
+The returned `changes` rows contain the server's WIP state.
+Readback must confirm every published revision is current, open and WIP.
+Otherwise, the command fails with `WIP_NOT_CONFIRMED`.
+A push answered with "no new changes" does not by itself confirm WIP.
+Without `--wip`, publication behavior is unchanged.
+
+`gerrit-axi ready <change>` activates an open WIP change without publishing a new patch set.
+It uses REST only, sending an empty JSON object with the stored HTTP token.
+Use `--patch-set <n>`, `--revision <sha>`, or both to guard previously validated work.
+A stale guard fails with `PATCH_SET_MISMATCH` before writing.
+The revision must be a full lowercase commit ID.
+Guards are checked even for an already-active change, which otherwise succeeds without a write.
+Closed changes are refused with `READY_REFUSED`.
+
+A ready confirmation contains `ok`, `op: ready`, `change`, `patch_set`, and `revision`.
+It also contains `wip: false`, `status: NEW`, and `already_ready`.
+A REST readback must confirm the same patch set and revision, still open and now active.
+A mismatch fails with `READY_NOT_CONFIRMED`.
+HTTP 403 and 404 remain `FORBIDDEN` and `NOT_FOUND`; a 409 is `READY_REFUSED`.
+Both 403 and 409 errors preserve Gerrit's response text.
+Transport errors exit 5 and follow the usual typed stdout error contract.
+Activation does not approve or submit a change.
+
+`gerrit-axi wip <change>` marks an existing open change WIP without publishing a patch set.
+It uses REST only, sending an empty JSON object to `POST /a/changes/<id>/wip`.
+It accepts the same guards, checking them even if the change is already WIP.
+Readback must confirm WIP on the same open patch set and revision.
+Its confirmation uses `op: wip`, `wip: true`, and `already_wip`.
+The other fields match the ready confirmation.
+A closed change or HTTP 409 produces `WIP_REFUSED`.
+A readback mismatch produces `WIP_NOT_CONFIRMED`.
+An already-WIP open change succeeds without writing.
+
+The dedicated REST endpoints use Gerrit's normal notification and attention-set behavior.
+See Gerrit's [ready endpoint][ready-endpoint] and [WIP endpoint][wip-endpoint].
+The endpoints address the change, not a specific revision.
+Guards and readback detect races but cannot prevent a concurrent patch set from being affected.
+Inspect the change after any write transport error or failed readback before retrying.
+The write may already have taken effect.
+
+[ready-endpoint]:
+  https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#set-ready-for-review
+[wip-endpoint]:
+  https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#set-work-in-progress
+
+```sh
+gerrit-axi publish --stack --topic demo --wip
+gerrit-axi ready 12345 --patch-set 2 --json
+gerrit-axi wip 12345 --patch-set 2 --json
 ```

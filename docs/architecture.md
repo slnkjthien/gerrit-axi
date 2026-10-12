@@ -76,25 +76,22 @@ Three channels, each necessary:
   string can become an element of the argv — and so a hundred-row list view never
   pays for a hundred message timelines.
 
-  The same channel carries the one SSH write: `gerrit review --message <text>
-  <change>,<patchset>`, built by `buildMessageArgs` in `src/core/message.js`,
-  which has no parameter for any other option. The text travels as one
-  single-quoted word — the `'\''` spelling that Gerrit's own tokeniser and a
-  POSIX shell both read as literal — so nothing in it can become an option of
-  `gerrit review` or a command on a host that turned out to have a shell.
-- **REST** — `https://<host>/a/...` with Basic auth, for inline comments, which
-  SSH cannot reach, and for the one write REST makes: `POST
-  /a/changes/<n>/submit`. Every other request is a GET. Gerrit prefixes every REST
-  JSON body with the XSSI guard line `)]}'`, which is stripped before parsing.
-- **git over SSH** — `gerrit-axi publish` asks the same SSH endpoint for the
-  branch tip with `git ls-remote`, then makes one `git push` of one refspec,
-  `<commit>:refs/for/<branch>`, with an optional `%topic=`. The push is built in
-  one function, `buildPushArgs` in `src/core/publish.js`, which has no parameter
-  for any other push option. Branch and topic names are screened for the
-  characters that would smuggle one in, and a configured `push.pushOption` is
-  cleared, so the server receives only what was built.
+  The same channel carries the change-message write.
+  `buildMessageArgs` in `src/core/message.js` builds the fixed message command.
+  It has no parameter for another option.
+  The text travels as one single-quoted word, so it cannot become another option or a shell command.
+  See [Work in progress](agent-tier.md#work-in-progress) for activation guards
+  and readback over REST.
+- **REST** - `https://<host>/a/...` with Basic auth, for reads and fixed writes.
+  `src/core/rest.js` owns the write allowlist and exposes no general-purpose write method.
+  Gerrit prefixes REST JSON responses with the XSSI guard line `)]}'`.
+  The client strips that line before parsing.
+- **git over SSH** - `gerrit-axi publish` uses `git ls-remote` to read the branch tip.
+  It then makes one `git push` of one refspec to the same SSH endpoint.
+  `buildPushArgs` in `src/core/publish.js` owns the allowed options and injection safeguards.
+  See [Work in progress](agent-tier.md#work-in-progress) for WIP publication semantics.
 
-HTTP 401, 403 and 404 are kept distinct: 401 means the credential is bad or
-expired and is the only one that tells you to re-run `auth login`; 403 means you
-authenticated but may not read that resource; 404 means no such change (or one you
-cannot see).
+HTTP 401, 403 and 404 are kept distinct.
+401 means the credential is bad or expired and is the only one that asks you to re-run `auth login`.
+403 means you authenticated but lack permission for the requested operation.
+404 means no such change, or one you cannot see.

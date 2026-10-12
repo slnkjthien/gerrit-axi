@@ -46,16 +46,16 @@ injectable, the real code paths run against them. Covered in particular:
   the push argv pinned exactly, a branch or topic that would smuggle a push option
   refused, a server rejection reported verbatim, and "no new changes" treated as
   already published
+- WIP publication and activation: see `test/publish.test.js` and
+  `test/wip-rest.test.js`.
 - submit as one POST with no query before it, and a refusal carried in the
   server's own words
 - the change message: the argv pinned exactly, a text stuffed with every scoring
   and state flag arriving as one quoted word through a model of Gerrit's own
   tokeniser, the text taken from stdin or a file and never from argv, an empty
   text refused before any round trip, and a refusal carried in the server's words
-- the layering rules, the absence of any hostname literal, and that nothing can
-  vote: `gerrit review` spelled in one module only and there with `--message` as
-  its only option, no REST review or votes path, no label option on a push, no
-  `set-reviewers` or `set-topic`
+- the layering and no-voting invariants documented in `AGENTS.md`,
+  enforced by `test/layering.test.js` and its runtime complements
 
 The one thing the suite cannot check on a machine without them is the
 `secret-tool` and `gpg` backends against a *real* keyring or GPG key; those are

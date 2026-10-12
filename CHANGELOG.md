@@ -7,6 +7,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 versions follow [Semantic Versioning](https://semver.org/). Each release's section
 here is its GitHub Release notes, above the list of pull requests it merged.
 
+## [Unreleased]
+
+### Added
+
+- `gerrit-axi publish --wip` publishes changes as work in progress.
+- `gerrit-axi ready <change>` activates an existing work-in-progress change.
+- `gerrit-axi wip <change>` marks an existing change work in progress.
+
+See [Work in progress](docs/agent-tier.md#work-in-progress) for guards and readback semantics.
+
 ## [0.5.0]
 
 ### Added

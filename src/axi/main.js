@@ -19,10 +19,12 @@ import {
   opDashboard,
   opMessage,
   opPublish,
+  opReady,
   opShow,
   opStatus,
   opSubmit,
   opWatch,
+  opWip,
 } from './commands.js';
 import { COMMAND_HELP, USAGE } from './help.js';
 import { COMMAND_TEMPLATES, errorHelp } from './hints.js';
@@ -51,6 +53,8 @@ const OPS = {
   comments: opComments,
   auth: opAuth,
   publish: opPublish,
+  ready: opReady,
+  wip: opWip,
   submit: opSubmit,
   message: opMessage,
   watch: opWatch,

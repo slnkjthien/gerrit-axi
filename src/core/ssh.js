@@ -132,8 +132,7 @@ function detailFlags(include) {
  * The client half of every ssh argv: port, batch mode, a connect timeout, then
  * the `--` marker and the destination. Past that marker ssh parses no option, so
  * the destination is never one, and every remote word that follows is Gerrit's
- * to read. Exported for the one other module that runs a Gerrit command over
- * ssh, `message.js`, which appends its own fixed remote words to this.
+ * to read. Exported for `message.js`, which appends its fixed remote words.
  *
  * @param {{host: string, port: number, user: string}} conn
  * @param {{connectTimeoutSeconds?: number}} [opts]

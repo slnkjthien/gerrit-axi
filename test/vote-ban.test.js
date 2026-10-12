@@ -56,7 +56,7 @@ function logRecord(sha, parent, message) {
  * @param {string} log
  * @param {string} head
  */
-function repo(log, head) {
+function repo(log, head, wipPublish = false, squashWip = false) {
   let built = 0;
   return fakeRunner([
     { match: (f, a) => f === 'git' && a.includes('remote'), result: { stdout: REMOTE } },
@@ -77,7 +77,16 @@ function repo(log, head) {
       match: (f, a) => f === 'git' && a.includes('push'),
       result: (_f, a) => ({ stdout: `To x\n*\t${a[a.length - 1]}\t[new reference]\nDone\n` }),
     },
-    { match: (f) => f === 'ssh', result: { stdout: fixture('query-stack.txt') } },
+    { match: (f) => f === 'ssh', result: () => ({ stdout: wipPublish
+      ? fixture('query-stack.txt').trim().split('\n').slice(0, 3).map((line) => {
+        const row = JSON.parse(line);
+        row.wip = true;
+        if (squashWip && row.id === `I${'a'.repeat(40)}`) {
+          row.currentPatchSet.revision = '1'.repeat(40);
+        }
+        return JSON.stringify(row);
+      }).join('\n')
+      : fixture('query-stack.txt') }) },
   ]);
 }
 
@@ -87,6 +96,9 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   // The middle commit has no Change-Id, so the stack also stamps and rewrites.
   const stackLog = logRecord(a, BASE, `Split the reader out${id(a)}`)
     + logRecord(b, a, 'Give the reader a retry ceiling\n')
+    + logRecord(c, b, `Wire the ceiling to managed config${id(c)}`);
+  const wipStackLog = logRecord(a, BASE, `Split the reader out${id(a)}`)
+    + logRecord(b, a, `Give the reader a retry ceiling${id(b)}`)
     + logRecord(c, b, `Wire the ceiling to managed config${id(c)}`);
   const squashLog = logRecord(a, BASE, `Split the reader out${id(a)}`)
     + logRecord(b, a, 'Address review\n');
@@ -116,6 +128,9 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   const operations = [
     { argv: ['publish', '--stack', '--topic', 'stack-of-three'], log: stackLog, head: c },
     { argv: ['publish', '--squash'], log: squashLog, head: b },
+    { argv: ['publish', '--stack', '--topic', 'stack-of-three', '--wip'], log: wipStackLog, head: c },
+    { argv: ['publish', '--squash', '--wip'], log: squashLog, head: b },
+    { argv: ['wip', '200101'], log: '', head: c },
     { argv: ['submit', '200101'], log: '', head: c },
     { argv: ['submit', '200102'], log: '', head: c },
     { argv: ['message', '200101'], log: '', head: c, stdin: hostile },
@@ -132,16 +147,30 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     ])], log: '', head: c },
   ];
 
-  /** @type {Array<{op: string, file: string, args: string[]}>} */
+  /** @type {Array<{op: string, file: string, args: string[], input?: string}>} */
   const processes = [];
-  /** @type {Array<{op: string, method: string, path: string}>} */
+  /** @type {Array<{op: string, method: string, path: string, body?: string}>} */
   const requests = [];
   const restored = Session.prototype.token;
   Session.prototype.token = async () => ({ token: 'placeholder-not-a-real-token', backend: 'file', location: null });
   try {
     for (const { argv, log, head, stdin } of operations) {
-      const runner = repo(log, head);
-      const fetchImpl = fakeFetch(fetchRoutes);
+      const runner = repo(log, head, argv[0] === 'publish' && argv.includes('--wip'),
+        argv[0] === 'publish' && argv.includes('--wip') && argv.includes('--squash'));
+      const restState = argv[0] === 'wip';
+      let reads = 0;
+      const fetchImpl = restState ? Object.assign(async (url, init) => {
+        const one = fakeFetch([
+          { path: `/a/changes/200101/${argv[0]}`, body: '' },
+          { path: '/a/changes/200101?o=CURRENT_REVISION', body: ")]}'\n" + JSON.stringify({
+            _number: 200101, status: 'NEW', current_revision: c, revisions: { [c]: { _number: 4 } },
+            work_in_progress: reads++ === 0 ? argv[0] === 'ready' : argv[0] === 'wip',
+          }) },
+        ]);
+        const response = await one(url, init);
+        fetchImpl.calls.push(...one.calls);
+        return response;
+      }, { calls: [] }) : fakeFetch(fetchRoutes);
       const stdout = captureStream();
       const code = await main(argv, {
         cwd: '/some/checkout',
@@ -154,9 +183,9 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
       });
       const op = argv.join(' ') || '(dashboard)';
       assert.equal(code, EXIT.ok, `${op} must run to completion for its calls to count:\n${stdout.text}`);
-      for (const call of runner.calls) processes.push({ op, file: call.file, args: call.args });
+      for (const call of runner.calls) processes.push({ op, file: call.file, args: call.args, input: call.input });
       for (const call of fetchImpl.calls) {
-        requests.push({ op, method: call.method ?? 'GET', path: new URL(call.url).pathname });
+        requests.push({ op, method: call.method ?? 'GET', path: new URL(call.url).pathname, body: call.body });
       }
     }
   } finally {
@@ -169,25 +198,32 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   // The already-merged submit reads the change back, and that read is a GET.
   assert.deepEqual(requests.filter((r) => r.op === 'submit 200102').map((r) => `${r.method} ${r.path}`),
     ['POST /a/changes/200102/submit', 'GET /a/changes/200102']);
+  for (const op of ['wip 200101']) {
+    const calls = requests.filter((r) => r.op === op);
+    assert.deepEqual(calls.map((r) => r.method), ['GET', 'POST', 'GET']);
+    assert.equal(calls[1].path, `/a/changes/200101/${op.split(' ')[0]}`);
+  }
   const posts = processes.filter((p) => p.file === 'ssh' && p.args.includes('review'));
-  assert.equal(posts.length, 1, 'the message was posted exactly once');
+  assert.equal(posts.length, 1, 'only the message operation writes through gerrit review');
 
   // The one command that can vote leaves the process with these words and no
   // others: the text is one quoted element, and the target is change,patchset.
-  const [post] = posts;
-  assert.equal(post.op, 'message 200101', 'only the message operation may run gerrit review');
+  const post = posts.find((p) => p.op === 'message 200101');
+  assert.equal(post.op, 'message 200101', 'message has its own fixed review shape');
   const at = post.args.indexOf('gerrit');
   assert.deepEqual(post.args.slice(at), ['gerrit', 'review', '--message', quoteForGerrit(hostile), '200101,4'],
     `the message argv must be gerrit review --message <one quoted word> <change>,<patchset>. ${WHY}`);
   assert.equal(post.args.indexOf('review'), at + 1, 'review appears once, as the subcommand');
   assert.equal(post.args.lastIndexOf('review'), at + 1, 'review appears once, as the subcommand');
 
-  for (const { op, method, path } of requests) {
+  for (const { op, method, path, body } of requests) {
     assert.doesNotMatch(path, /\/(?:review|votes|reviewers)(?:\/|$)/,
       `${op} requested ${method} ${path}. ${WHY}`);
     if (method !== 'GET') {
-      assert.match(path, /^\/a\/changes\/\d+\/submit$/,
-        `${op} made a ${method} to ${path}; the only write over HTTP is submit. ${WHY}`);
+      assert.equal(method, 'POST');
+      assert.match(path, /^\/a\/changes\/\d+\/(?:submit|ready|wip)$/,
+        `${op} made an unexpected ${method} to ${path}. ${WHY}`);
+      assert.equal(body, '{}', 'REST writes carry no caller-supplied fields');
     }
   }
 
@@ -219,8 +255,8 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     for (const refspec of args.filter((arg) => arg.includes('refs/for/'))) {
       const options = refspec.includes('%') ? refspec.slice(refspec.indexOf('%') + 1).split(',') : [];
       for (const option of options) {
-        assert.match(option, /^topic=/,
-          `${op} pushed ${refspec}: the only push option allowed is a topic, and ${option} is not one. ${WHY}`);
+        assert.match(option, /^(?:topic=.+|wip)$/,
+          `${op} pushed ${refspec}: only a topic or wip is allowed, and ${option} is not. ${WHY}`);
       }
     }
   }

@@ -32,9 +32,10 @@
  *
  *     const { deltas, baseline } = await watchChanges(session, [184458, 184459]);
  *
- * ...and the three writes, which are all there are -- nothing here can vote:
+ * ...and examples of writes -- nothing here can vote:
  *
  *     const publication = await publishChanges(session, { shape: 'stack', topic: 'retry' });
+ *     const active = await readyChange(session, 184458);
  *     const posted = await postChangeMessage(session, 184458, 'What the fix changed...');
  *     const merged = await submitChange(session, 184458);   // the server may refuse
  */
@@ -107,6 +108,8 @@ export {
   restGetJson,
   restGetRaw,
   restSubmit,
+  restReady,
+  restWip,
   stripXssiPrefix,
   verifyToken,
 } from './rest.js';
@@ -151,3 +154,5 @@ export { buildMessageArgs, postChangeMessage, quoteForGerrit } from './message.j
 export { AuthError, ConfigError, GerritError, TransportError } from './errors.js';
 
 export { commandExists, runCommand } from './exec.js';
+
+export { readyChange, wipChange } from './ready.js';
