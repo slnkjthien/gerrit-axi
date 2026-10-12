@@ -59,13 +59,18 @@ Run `gerrit-axi --help` for every option.
 
 - It cannot vote, add reviewers, or set labels, and no workaround exists: ask
   the user when a change needs a vote.
-- `ready` activates an open work-in-progress change over REST without a new patch
-  set. It needs a stored token and follows Gerrit's normal notification behavior.
-  Use `--patch-set` or `--revision` to guard previously validated work; a
-  mismatch refuses the write. Readback must confirm the same revision is active,
-  and an already-active change succeeds without writing.
+- `ready` activates an open work-in-progress change over REST without a new patch set.
+  It needs a stored token and follows Gerrit's normal notification behavior.
+  Get explicit user permission before activating someone else's change.
+  Use `--patch-set` or `--revision` to guard previously validated work.
+  A mismatch refuses the write.
+  Readback must confirm the same revision is active.
+  An already-active change succeeds without writing.
 - `wip` marks an existing open change work in progress over REST without a new patch set.
-  It accepts the same guards as `ready`, verifies WIP by readback, and treats an already-WIP change as a no-op.
+  Get explicit user permission before marking someone else's change WIP.
+  This can remove it from reviewers' dashboards.
+  It accepts the same guards as `ready` and verifies WIP by readback.
+  An already-WIP change succeeds without writing.
 - `submit` only a change the server marks submittable; a refusal comes back in
   the server's own words. A change that has already merged is a success with
   `already_merged: true`.
