@@ -3,12 +3,12 @@
 /**
  * The vote ban, at runtime. Every agent-tier operation -- both publish shapes,
  * submit (including a repeat on a change that has merged, which reads the change
- * back), message, and the reads -- is driven end to end through a fake runner
- * and a fake fetch, and every subprocess call and HTTP request it makes is
- * checked for a way to vote. The message operation is the one that runs the
- * command that can vote, so its argv is pinned element by element: the text it
- * was given is stuffed with every scoring and state flag, and must leave the
- * process as one quoted word that is none of them.
+ * back), ready, wip, message, and the reads -- is driven end to end through a
+ * fake runner and a fake fetch, and every subprocess call and HTTP request it
+ * makes is checked for a way to vote. The message operation is the one that
+ * runs the command that can vote, so its argv is pinned element by element: the
+ * text it was given is stuffed with every scoring and state flag, and must leave
+ * the process as one quoted word that is none of them.
  *
  * This is not a duplicate of the vote-ban test in test/layering.test.js; the two
  * catch different failures. That one reads the source and makes a universal
@@ -130,6 +130,7 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     { argv: ['publish', '--squash'], log: squashLog, head: b },
     { argv: ['publish', '--stack', '--topic', 'stack-of-three', '--wip'], log: wipStackLog, head: c },
     { argv: ['publish', '--squash', '--wip'], log: squashLog, head: b },
+    { argv: ['ready', '200101'], log: '', head: c },
     { argv: ['wip', '200101'], log: '', head: c },
     { argv: ['submit', '200101'], log: '', head: c },
     { argv: ['submit', '200102'], log: '', head: c },
@@ -157,7 +158,7 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     for (const { argv, log, head, stdin } of operations) {
       const runner = repo(log, head, argv[0] === 'publish' && argv.includes('--wip'),
         argv[0] === 'publish' && argv.includes('--wip') && argv.includes('--squash'));
-      const restState = argv[0] === 'wip';
+      const restState = argv[0] === 'ready' || argv[0] === 'wip';
       let reads = 0;
       const fetchImpl = restState ? Object.assign(async (url, init) => {
         const one = fakeFetch([
@@ -198,7 +199,7 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   // The already-merged submit reads the change back, and that read is a GET.
   assert.deepEqual(requests.filter((r) => r.op === 'submit 200102').map((r) => `${r.method} ${r.path}`),
     ['POST /a/changes/200102/submit', 'GET /a/changes/200102']);
-  for (const op of ['wip 200101']) {
+  for (const op of ['ready 200101', 'wip 200101']) {
     const calls = requests.filter((r) => r.op === op);
     assert.deepEqual(calls.map((r) => r.method), ['GET', 'POST', 'GET']);
     assert.equal(calls[1].path, `/a/changes/200101/${op.split(' ')[0]}`);
