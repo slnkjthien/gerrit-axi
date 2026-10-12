@@ -60,3 +60,24 @@ injectable, the real code paths run against them. Covered in particular:
 The one thing the suite cannot check on a machine without them is the
 `secret-tool` and `gpg` backends against a *real* keyring or GPG key; those are
 exercised against a stub.
+
+## Licensing your contribution
+
+gerrit-axi is licensed under Apache-2.0 (see `LICENSE`). By opening a pull
+request you agree that your contribution is submitted under the same licence, as
+section 5 of Apache-2.0 provides: anything you intentionally submit for inclusion
+is licensed under its terms, including the patent grant in section 3, unless you
+say otherwise in writing.
+
+You keep the copyright in your contribution. `NOTICE` names Spectralink
+Corporation as the copyright holder of the project as distributed; it does not
+claim ownership of code contributed by others.
+
+Submit only work you have the right to license. If your employer or anyone else
+may own what you write — many employment agreements say so — make sure you are
+permitted to contribute it under Apache-2.0 before opening the pull request. If
+you cannot confirm that, say so in the pull request and we will work it out
+before merging.
+
+Do not submit code copied from a source whose licence is incompatible with
+Apache-2.0, and say where any third-party code you include came from.
