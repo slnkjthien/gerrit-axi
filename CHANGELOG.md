@@ -30,7 +30,8 @@ here is its GitHub Release notes, above the list of pull requests it merged.
 - `gerrit-axi ready <change>` activates an existing work-in-progress change.
 - `gerrit-axi wip <change>` marks an existing change work in progress.
 
-See [Work in progress](docs/agent-tier.md#work-in-progress) for guards and readback semantics.
+See [Work in progress](https://github.com/slnkjthien/gerrit-axi/blob/v0.5.0/docs/agent-tier.md#work-in-progress)
+for guards and readback semantics.
 
 ### Fixed
 
