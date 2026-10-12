@@ -763,7 +763,7 @@ async function opWipState({ session, args }, wip) {
   }
   const result = wip
     ? await wipChange(session, numbers[0], { patchSet, revision })
-    : await readyChange(session, numbers[0], { patchSet, revision, rest: args.flags['--rest'] === true });
+    : await readyChange(session, numbers[0], { patchSet, revision });
   return {
     ok: true, op, change: result.change.number,
     patch_set: result.change.currentPatchSet.number,

@@ -76,11 +76,11 @@ Three channels, each necessary:
   string can become an element of the argv — and so a hundred-row list view never
   pays for a hundred message timelines.
 
-  The same channel carries two SSH writes.
+  The same channel carries the change-message write.
   `buildMessageArgs` in `src/core/message.js` builds `gerrit review --message <text> <change>,<patchset>`, with no parameter for another option.
   The text travels as one single-quoted word, so it cannot become another option or a shell command.
-  `buildReadyArgs` in `src/core/ready.js` builds `gerrit review --json <change>,<patchset>` with a fixed ready/notify object on stdin.
-  See [Work in progress](agent-tier.md#work-in-progress) for activation guards and readback.
+  See [Work in progress](agent-tier.md#work-in-progress) for activation guards
+  and readback over REST.
 - **REST** - `https://<host>/a/...` with Basic auth, for reads and fixed writes.
   `src/core/rest.js` owns the write allowlist and exposes no general-purpose write method.
   Gerrit prefixes REST JSON responses with the XSSI guard line `)]}'`.

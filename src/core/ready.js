@@ -1,30 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
-/** Guard and verify WIP transitions through fixed SSH or REST writes. */
-import { queryChanges } from './changes.js';
+/** Guard and verify WIP transitions through fixed REST writes. */
 import { GerritError, TransportError } from './errors.js';
 import { restGetJson, restReady, restWip } from './rest.js';
-import { buildSshDestination, runSsh, sshFailure } from './ssh.js';
-
-/**
- * @param {{host: string, port: number, user: string}} conn
- * @param {number} change
- * @param {number} patchSet
- */
-export function buildReadyArgs(conn, change, patchSet) {
-  if (!Number.isSafeInteger(change) || change <= 0
-    || !Number.isSafeInteger(patchSet) || patchSet <= 0) {
-    throw new GerritError('ready needs positive change and patch set numbers', { code: 'BAD_RESPONSE' });
-  }
-  return [...buildSshDestination(conn), 'gerrit', 'review', '--json', `${change},${patchSet}`];
-}
 
 /**
  * Read before and after the write. Guards detect stale validation before writing;
  * the readback detects a concurrent patch set update, but is not an atomic lock.
  * @param {import('./session.js').Session} session
  * @param {number} number
- * @param {{patchSet?: number, revision?: string, rest?: boolean}} [expected]
+ * @param {{patchSet?: number, revision?: string}} [expected]
  */
 export async function readyChange(session, number, expected = {}) {
   const result = await changeWipState(session, number, expected, false);
@@ -37,14 +22,14 @@ export async function readyChange(session, number, expected = {}) {
  * @param {{patchSet?: number, revision?: string}} [expected]
  */
 export async function wipChange(session, number, expected = {}) {
-  const result = await changeWipState(session, number, { ...expected, rest: true }, true);
+  const result = await changeWipState(session, number, expected, true);
   return { change: result.change, alreadyWip: result.already };
 }
 
 /**
  * @param {import('./session.js').Session} session
  * @param {number} number
- * @param {{patchSet?: number, revision?: string, rest?: boolean}} expected
+ * @param {{patchSet?: number, revision?: string}} expected
  * @param {boolean} wip
  */
 async function changeWipState(session, number, expected, wip) {
@@ -58,10 +43,9 @@ async function changeWipState(session, number, expected, wip) {
       || !/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(expected.revision)))) {
     throw new GerritError('invalid expected patch set or revision', { code: 'BAD_RESPONSE' });
   }
-  const target = expected.rest ? await session.restTarget() : null;
+  const target = await session.restTarget();
   const read = async () => {
-    const rows = target ? [await readRestState(target, number)]
-      : await queryChanges(session, { kind: 'changes', numbers: [number] }, { limit: 1 });
+    const rows = [await readRestState(target, number)];
     const change = rows.find((row) => row.number === number);
     if (!change) throw new TransportError(`no such change: ${number}`, { code: 'NOT_FOUND' });
     const ps = change.currentPatchSet;
@@ -83,31 +67,13 @@ async function changeWipState(session, number, expected, wip) {
     throw new TransportError(`change ${number} is not open: ${before.status}`, { code: `${code}_REFUSED` });
   }
   if (before.wip === wip) return { change: before, already: true };
-  if (target) {
-    try {
-      await (wip ? restWip : restReady)(target, number);
-    } catch (error) {
-      if (error instanceof TransportError && error.code === 'HTTP_ERROR') {
-        error.remedy = `Inspect the change before retrying; the ${op} write may already have taken effect.\n${error.remedy ?? ''}`.trim();
-      }
-      throw error;
+  try {
+    await (wip ? restWip : restReady)(target, number);
+  } catch (error) {
+    if (error instanceof TransportError && error.code === 'HTTP_ERROR') {
+      error.remedy = `Inspect the change before retrying; the ${op} write may already have taken effect.\n${error.remedy ?? ''}`.trim();
     }
-  } else {
-    const conn = session.config;
-    const result = await runSsh(buildReadyArgs(conn, number, ps.number), {
-      runner: session.runner,
-      input: JSON.stringify({ ready: true, notify: 'NONE' }),
-    });
-    if (result.code === null || result.code === 255) {
-      const error = sshFailure(conn, result);
-      error.remedy = `Inspect the change before retrying; the ready write may already have taken effect.\n${error.remedy}`;
-      throw error;
-    }
-    if (result.code !== 0) {
-      throw new TransportError(`Gerrit refused to activate change ${number}: ${String(result.stderr ?? '').trim() || `exit ${result.code}`}`, {
-        code: `${code}_REFUSED`,
-      });
-    }
+    throw error;
   }
   const after = await read().catch((error) => {
     if (error instanceof GerritError) {

@@ -69,8 +69,7 @@ commands, and the options each one takes:
       --wip                  publish as work in progress; verify by readback
       --branch <b>            the branch to propose against (default: the
                               server's default branch)
-  ready <change>             activate a work-in-progress change over SSH
-      --rest                 use REST instead, with a stored HTTP token
+  ready <change>             activate a work-in-progress change via REST
       --patch-set <n>         refuse if the current patch set differs
       --revision <sha>        refuse if the current revision differs
   wip <change>               mark an existing change work in progress via REST
@@ -256,23 +255,21 @@ examples:
   gerrit-axi auth status --json`,
   ready: `gerrit-axi ready - activate a work-in-progress change without a new patch set
 
-usage: gerrit-axi ready <change> [--rest] [--patch-set <n>] [--revision <sha>]
+usage: gerrit-axi ready <change> [--patch-set <n>] [--revision <sha>]
 
 Exactly one change number is required.
-Uses SSH by default: gerrit review --json, with no HTTP token.
---rest selects HTTP for all reads and the write, using a stored token.
-Neither route falls back to the other.
+Uses REST with a stored HTTP token for all reads and the write.
+There is no SSH fallback.
 An already-active open change succeeds without writing. Closed changes are refused.
 
 options:
-  --rest                 select REST with a stored HTTP token
   --patch-set <n>         expected current patch set number
   --revision <sha>        expected full lowercase commit object ID
 
 Guards are checked before writing. Readback must confirm an active change on the
 same patch set and revision. These checks are not an atomic concurrency lock.
-No votes are requested. SSH suppresses email; REST uses Gerrit's notification
-behavior for its dedicated ready endpoint.
+No votes are requested. Gerrit controls notifications and attention-set updates
+for its dedicated ready endpoint.
 
 global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
   --rest-base <u> (see gerrit-axi --help)

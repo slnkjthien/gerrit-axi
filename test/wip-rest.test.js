@@ -30,7 +30,7 @@ async function run(t, op, { before, after, argv = [], status = 200, readStatus =
   };
   const stdout = captureStream();
   const stderr = captureStream();
-  const code = await main([op, '12345', ...(wip ? [] : ['--rest']), ...argv,
+  const code = await main([op, '12345', ...argv,
     '--host', 'gerrit.example.com', '--user', 'ada', ...(json ? ['--json'] : [])], {
     env: { XDG_CONFIG_HOME: '/nonexistent-xdg-for-tests', PATH: '' }, cwd: '/some/checkout',
     runner, fetchImpl, stdout: stdout.stream, stderr: stderr.stream,
@@ -144,7 +144,7 @@ for (const op of ['ready', 'wip']) {
 
   test(`${op} refuses injected options and invalid guards before HTTP calls`, async (t) => {
     for (const argv of [['--patch-set', '0'], ['--revision', 'abcd'], ['--label', 'X=2'],
-      ['--notify', 'ALL'], ['--submit'], ['--rest=false'], ['12346']]) {
+      ['--notify', 'ALL'], ['--submit'], ['--rest'], ['12346']]) {
       const result = await run(t, op, { argv });
       assert.equal(result.code, EXIT.usage);
       assert.equal(result.calls.length, 0);

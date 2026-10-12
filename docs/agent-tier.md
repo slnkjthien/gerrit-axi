@@ -36,7 +36,7 @@ gerrit-axi publish --squash            the commits on HEAD become one change
     --wip                              publish as work in progress and verify by readback
     --branch <b>                       the branch to propose against (default: the server's default)
 
-gerrit-axi ready <change> [--rest]     activate without a new patch set
+gerrit-axi ready <change>              activate without a new patch set
 gerrit-axi wip <change>                mark an existing change WIP via REST
     --patch-set <n>                    expected current patch set
     --revision <sha>                   expected full commit ID
@@ -606,9 +606,10 @@ Every published revision must be current, open and WIP in the readback, or the c
 A push answered with "no new changes" does not by itself confirm WIP.
 Without `--wip`, publication behavior is unchanged.
 
-`gerrit-axi ready <change>` activates an open work-in-progress change using SSH by default `gerrit review --json`, without an HTTP token or a new patch set.
-The SSH route sends only `{"ready":true,"notify":"NONE"}` on stdin, never caller-supplied review JSON, labels, or options.
-The SSH route requests no email notification.
+`gerrit-axi ready <change>` activates an open work-in-progress change through
+REST without publishing a new patch set.
+It sends an empty JSON object to the dedicated ready endpoint and uses the
+stored HTTP token.
 An optional `--patch-set <n>` or `--revision <sha>` refuses stale validation with `PATCH_SET_MISMATCH` before writing; both may be supplied.
 The revision must be a full lowercase commit ID.
 Guards are checked even for an already-active change, which otherwise succeeds without a write.
@@ -619,22 +620,19 @@ gerrit-axi publish --stack --topic demo --wip
 gerrit-axi ready 12345 --patch-set 2 --json
 ```
 
-A ready confirmation contains `ok`, `op: ready`, `change`, `patch_set`, `revision`, `wip: false`, `status: NEW`, and `already_ready`.
-The write is followed by a query that must confirm the same patch set and revision, still open and now active.
+A ready confirmation contains `ok`, `op: ready`, `change`, `patch_set`,
+`revision`, `wip: false`, `status: NEW`, and `already_ready`.
+The write is followed by a REST read that must confirm the same patch set and
+revision, still open and now active.
 A mismatch fails with `READY_NOT_CONFIRMED`; a missing change remains `NOT_FOUND`.
-A refusal carries Gerrit's words with `READY_REFUSED`, while an SSH connection or process failure is `SSH_FAILED`.
-These transport errors exit 5 and follow the usual typed stdout error contract.
-A timeout, signal or lost SSH connection can occur after activation has taken effect.
-Inspect the change before retrying after a write transport error or a readback failure.
-The guards and readback detect concurrent patch set updates, but do not provide an atomic lock across the query and write.
+HTTP 403 and 404 remain `FORBIDDEN` and `NOT_FOUND`; a 409 is
+`READY_REFUSED` and preserves Gerrit's response text.
+Transport errors exit 5 and follow the usual typed stdout error contract.
+Inspect the change before retrying after a write transport error or readback
+failure, because activation may already have taken effect.
+The guards and readback detect concurrent patch set updates, but do not provide
+an atomic lock across the read and write.
 Activation does not approve or submit a change.
-
-Add `--rest` to `ready` to select HTTP for the state reads and the write.
-It sends an empty JSON object to `POST /a/changes/<id>/ready` and uses the existing stored HTTP token.
-It never falls back to SSH, and SSH never falls back to REST.
-Missing or rejected credentials produce the existing typed authentication error with exit 4.
-HTTP 403 and 404 remain `FORBIDDEN` and `NOT_FOUND`; a 409 is `READY_REFUSED`.
-State-write refusals with HTTP 403 or 409 preserve Gerrit's response text.
 
 `gerrit-axi wip <change>` marks an existing open change work in progress through `POST /a/changes/<id>/wip`, without publishing a patch set.
 This command uses REST only and sends an empty JSON object.
@@ -643,13 +641,13 @@ Its confirmation has `op: wip`, `wip: true`, and `already_wip`, with the other f
 A closed change or HTTP 409 produces `WIP_REFUSED`; a readback mismatch produces `WIP_NOT_CONFIRMED`.
 An already-WIP open change succeeds without writing.
 
-The dedicated REST endpoints use Gerrit's notification and attention-set behavior.
-Unlike the SSH route, REST activation does not request notification suppression.
+The dedicated REST endpoints use Gerrit's normal notification and
+attention-set behavior.
 See Gerrit's [ready endpoint](https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#set-ready-for-review) and [WIP endpoint](https://gerrit-review.googlesource.com/Documentation/rest-api-changes.html#set-work-in-progress).
 The REST endpoints address the change, not a specific revision, so the guards and readback detect races but cannot prevent a concurrent patch set update from being affected.
 Inspect the change after any write transport error or failed readback before retrying.
 
 ```sh
-gerrit-axi ready 12345 --rest --patch-set 2 --json
+gerrit-axi ready 12345 --patch-set 2 --json
 gerrit-axi wip 12345 --patch-set 2 --json
 ```

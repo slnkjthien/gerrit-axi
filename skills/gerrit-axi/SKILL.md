@@ -11,10 +11,11 @@ a typed error record with `ok: false` on failure, and a `help[]` of next steps a
 complete commands.
 
 The binary has to be installed first (see the project README's Install
-section); it is not on npm, so `npx` will not find it. It talks to Gerrit over ssh, so the
-user's SSH key must be registered there. REST calls (inline comments, submit, ready --rest, wip)
-also need a stored token: if a record says the user is not signed in, ask them
-to run `gerrit auth login` themselves. Never handle a token yourself.
+section); it is not on npm, so `npx` will not find it. It talks to Gerrit over
+SSH, so the user's SSH key must be registered there. REST calls (inline
+comments, submit, ready, and wip) also need a stored token. If a record says the
+user is not signed in, ask them to run `gerrit auth login` themselves. Never
+handle a token yourself.
 
 ## Workflow
 
@@ -41,7 +42,7 @@ gerrit-axi auth status               whether the stored credential still works
 gerrit-axi publish --stack --topic <t>   each commit on HEAD becomes a change
 gerrit-axi publish --squash          the commits on HEAD become one change
     --wip                          publish WIP and verify state by readback
-gerrit-axi ready <change> [--rest]   activate WIP without a new patch set
+gerrit-axi ready <change>           activate WIP without a new patch set
 gerrit-axi wip <change>              mark an existing change WIP over REST
     --patch-set <n>                 refuse a different current patch set
     --revision <sha>                refuse a different current revision
@@ -58,11 +59,11 @@ Run `gerrit-axi --help` for every option.
 
 - It cannot vote, add reviewers, or set labels, and no workaround exists: ask
   the user when a change needs a vote.
-- `ready` activates an open work-in-progress change over SSH without an HTTP token.
-  Use `--patch-set` or `--revision` to guard previously validated work; a mismatch refuses the write.
-  Readback must confirm the same revision is active, and an already-active change succeeds without writing.
-  `--rest` selects REST for all reads and the write, requires a stored token, and uses Gerrit's notification behavior instead of SSH's suppression.
-  There is no transport fallback.
+- `ready` activates an open work-in-progress change over REST without a new patch
+  set. It needs a stored token and follows Gerrit's normal notification behavior.
+  Use `--patch-set` or `--revision` to guard previously validated work; a
+  mismatch refuses the write. Readback must confirm the same revision is active,
+  and an already-active change succeeds without writing.
 - `wip` marks an existing open change work in progress over REST without a new patch set.
   It accepts the same guards as `ready`, verifies WIP by readback, and treats an already-WIP change as a no-op.
 - `submit` only a change the server marks submittable; a refusal comes back in
@@ -77,5 +78,8 @@ Run `gerrit-axi --help` for every option.
   nothing changed. Pass the record's `baseline` to the next watch with
   `--since`, as the token or a file holding only it, so a restart neither misses
   nor repeats a change.
+- Before changing a checkout, check its status and diff. Edit only work you own
+  or that this task authorizes; preserve other people's changes and never discard
+  them as cleanup.
 - Bodies over 1000 characters are cut, with `truncated: true` on the row; add
   `--full` for the whole text.

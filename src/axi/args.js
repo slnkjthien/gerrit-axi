@@ -37,7 +37,7 @@ export const COMMAND_OPTIONS = {
   comments: { withValue: [], boolean: ['--bots', '--humans', '--full'] },
   auth: { withValue: [], boolean: [] },
   publish: { withValue: ['--topic', '--branch'], boolean: ['--stack', '--squash', '--wip'] },
-  ready: { withValue: ['--patch-set', '--revision'], boolean: ['--rest'] },
+  ready: { withValue: ['--patch-set', '--revision'], boolean: [] },
   wip: { withValue: ['--patch-set', '--revision'], boolean: [] },
   submit: { withValue: [], boolean: [] },
   message: { withValue: ['--file'], boolean: [] },

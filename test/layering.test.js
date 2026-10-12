@@ -199,7 +199,7 @@ test('the core entry point exposes the library API a second binary would import'
 });
 
 /** Only these modules may spell the command that can vote. */
-const REVIEW_MODULES = [path.join(SRC_DIR, 'core', 'message.js'), path.join(SRC_DIR, 'core', 'ready.js')];
+const REVIEW_MODULES = [path.join(SRC_DIR, 'core', 'message.js')];
 
 test('voting is structurally impossible: no voting command or voting path exists anywhere', () => {
   // THE PROPERTY THIS TEST HOLDS. gerrit-axi publishes and submits, and it cannot
@@ -235,13 +235,12 @@ test('voting is structurally impossible: no voting command or voting path exists
   const code = new Map(files.map((file) => [file, stripComments(readFileSync(file, 'utf8'))]));
   const rel = (/** @type {string} */ file) => path.relative(REPO_ROOT, file);
 
-  // No voting vocabulary, in any spelling a caller could reach. Only the
-  // message and ready modules may spell the review command. Their runtime
-  // tests pin the argv and stdin payload; scoring patterns remain banned.
-  // Help may name the command in prose, but cannot spell review as an argv element.
+  // No voting vocabulary, in any spelling a caller could reach. The message
+  // module may spell the review command; its runtime test pins argv. Scoring
+  // patterns remain banned.
   const votingPaths = [
     [/\bgerrit\b[\s'"`,]*\breview\b/, 'the gerrit review SSH command, as a string or as argv',
-      [...REVIEW_MODULES, path.join(SRC_DIR, 'axi', 'help.js')]],
+      REVIEW_MODULES],
     [/['"`]review['"`\s]/, 'review as an argv element', REVIEW_MODULES],
     [/--(?:code-review|verified)\b|--label[\s'"`,=]+['"`]?(?:\$\{|[A-Za-z0-9-]+=)/,
       'a gerrit review scoring flag (--label NAME=VALUE; secret-tool\'s --label=<text> is not one)'],

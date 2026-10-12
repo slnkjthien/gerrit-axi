@@ -15,14 +15,15 @@ records for an agent. They are siblings, not wrappers — see
 It never votes, writes an inline comment, sets reviewers, or abandons.
 Gerrit evaluates its submit rules on the server and refuses a change without the required approvals.
 The tests forbid REST review endpoints and label push options throughout the codebase.
-Only `message.js` and `ready.js` may build the SSH review command, with fixed options and runtime tests that pin their arguments and payloads.
+Only `message.js` may build the SSH review command, with fixed options and a
+runtime test that pins its arguments and payload.
 The binding control remains the label permissions your server grants the account an agent uses.
 
 Use `gerrit-axi publish --squash --wip` or `gerrit-axi publish --stack --topic demo --wip` to publish work in progress.
 Use `gerrit-axi ready 12345 --patch-set 2` to activate an open change without a new patch set.
-Add `--rest` to `ready` to use HTTP with a stored token instead of SSH.
 Use `gerrit-axi wip 12345 --patch-set 2` to mark an existing change work in progress over REST.
-See [Work in progress](docs/agent-tier.md#work-in-progress) for transport, notifications, guards and readback rules.
+See [Work in progress](docs/agent-tier.md#work-in-progress) for transport,
+notifications, guards and readback rules.
 
 ```console
 $ gerrit status

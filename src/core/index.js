@@ -155,4 +155,4 @@ export { AuthError, ConfigError, GerritError, TransportError } from './errors.js
 
 export { commandExists, runCommand } from './exec.js';
 
-export { buildReadyArgs, readyChange, wipChange } from './ready.js';
+export { readyChange, wipChange } from './ready.js';

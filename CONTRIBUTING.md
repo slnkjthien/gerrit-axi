@@ -46,7 +46,8 @@ injectable, the real code paths run against them. Covered in particular:
   the push argv pinned exactly, a branch or topic that would smuggle a push option
   refused, a server rejection reported verbatim, and "no new changes" treated as
   already published
-- WIP publication and activation: see `test/publish.test.js`, `test/ready.test.js`, and `test/wip-rest.test.js`
+- WIP publication and activation: see `test/publish.test.js` and
+  `test/wip-rest.test.js`.
 - submit as one POST with no query before it, and a refusal carried in the
   server's own words
 - the change message: the argv pinned exactly, a text stuffed with every scoring

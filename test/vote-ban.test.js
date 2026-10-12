@@ -56,9 +56,8 @@ function logRecord(sha, parent, message) {
  * @param {string} log
  * @param {string} head
  */
-function repo(log, head, ready = false) {
+function repo(log, head, wipPublish = false, squashWip = false) {
   let built = 0;
-  let activated = false;
   return fakeRunner([
     { match: (f, a) => f === 'git' && a.includes('remote'), result: { stdout: REMOTE } },
     {
@@ -78,13 +77,15 @@ function repo(log, head, ready = false) {
       match: (f, a) => f === 'git' && a.includes('push'),
       result: (_f, a) => ({ stdout: `To x\n*\t${a[a.length - 1]}\t[new reference]\nDone\n` }),
     },
-    { match: (f, a) => f === 'ssh' && a.includes('--json'), result: () => {
-      activated = true;
-      return {};
-    } },
-    { match: (f) => f === 'ssh', result: () => ({ stdout: ready
-      ? fixture('query-stack.txt').trim().split('\n')
-        .map((line) => JSON.stringify({ ...JSON.parse(line), wip: !activated })).join('\n')
+    { match: (f) => f === 'ssh', result: () => ({ stdout: wipPublish
+      ? fixture('query-stack.txt').trim().split('\n').slice(0, 3).map((line) => {
+        const row = JSON.parse(line);
+        row.wip = true;
+        if (squashWip && row.id === `I${'a'.repeat(40)}`) {
+          row.currentPatchSet.revision = '1'.repeat(40);
+        }
+        return JSON.stringify(row);
+      }).join('\n')
       : fixture('query-stack.txt') }) },
   ]);
 }
@@ -95,6 +96,9 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   // The middle commit has no Change-Id, so the stack also stamps and rewrites.
   const stackLog = logRecord(a, BASE, `Split the reader out${id(a)}`)
     + logRecord(b, a, 'Give the reader a retry ceiling\n')
+    + logRecord(c, b, `Wire the ceiling to managed config${id(c)}`);
+  const wipStackLog = logRecord(a, BASE, `Split the reader out${id(a)}`)
+    + logRecord(b, a, `Give the reader a retry ceiling${id(b)}`)
     + logRecord(c, b, `Wire the ceiling to managed config${id(c)}`);
   const squashLog = logRecord(a, BASE, `Split the reader out${id(a)}`)
     + logRecord(b, a, 'Address review\n');
@@ -124,8 +128,8 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   const operations = [
     { argv: ['publish', '--stack', '--topic', 'stack-of-three'], log: stackLog, head: c },
     { argv: ['publish', '--squash'], log: squashLog, head: b },
-    { argv: ['ready', '200101'], log: '', head: c },
-    { argv: ['ready', '200101', '--rest'], log: '', head: c },
+    { argv: ['publish', '--stack', '--topic', 'stack-of-three', '--wip'], log: wipStackLog, head: c },
+    { argv: ['publish', '--squash', '--wip'], log: squashLog, head: b },
     { argv: ['wip', '200101'], log: '', head: c },
     { argv: ['submit', '200101'], log: '', head: c },
     { argv: ['submit', '200102'], log: '', head: c },
@@ -151,8 +155,9 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   Session.prototype.token = async () => ({ token: 'placeholder-not-a-real-token', backend: 'file', location: null });
   try {
     for (const { argv, log, head, stdin } of operations) {
-      const runner = repo(log, head, argv[0] === 'ready');
-      const restState = argv[0] === 'wip' || argv.includes('--rest');
+      const runner = repo(log, head, argv[0] === 'publish' && argv.includes('--wip'),
+        argv[0] === 'publish' && argv.includes('--wip') && argv.includes('--squash'));
+      const restState = argv[0] === 'wip';
       let reads = 0;
       const fetchImpl = restState ? Object.assign(async (url, init) => {
         const one = fakeFetch([
@@ -193,17 +198,13 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
   // The already-merged submit reads the change back, and that read is a GET.
   assert.deepEqual(requests.filter((r) => r.op === 'submit 200102').map((r) => `${r.method} ${r.path}`),
     ['POST /a/changes/200102/submit', 'GET /a/changes/200102']);
-  for (const op of ['ready 200101 --rest', 'wip 200101']) {
+  for (const op of ['wip 200101']) {
     const calls = requests.filter((r) => r.op === op);
     assert.deepEqual(calls.map((r) => r.method), ['GET', 'POST', 'GET']);
     assert.equal(calls[1].path, `/a/changes/200101/${op.split(' ')[0]}`);
   }
   const posts = processes.filter((p) => p.file === 'ssh' && p.args.includes('review'));
-  assert.equal(posts.length, 2, 'the message and activation each write once');
-  const activation = posts.find((p) => p.op === 'ready 200101');
-  assert.deepEqual(activation.args.slice(activation.args.indexOf('gerrit')),
-    ['gerrit', 'review', '--json', '200101,4']);
-  assert.equal(activation.input, '{"ready":true,"notify":"NONE"}');
+  assert.equal(posts.length, 1, 'only the message operation writes through gerrit review');
 
   // The one command that can vote leaves the process with these words and no
   // others: the text is one quoted element, and the target is change,patchset.
@@ -239,7 +240,7 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     const posting = op === 'message 200101' && file === 'ssh';
     const scanned = posting
       ? args.filter((arg) => arg !== 'review' && arg !== quoteForGerrit(hostile))
-      : op === 'ready 200101' && file === 'ssh' ? args.filter((arg) => arg !== 'review') : args;
+      : args;
     // An ssh command line can arrive as one argv element, so each is split too.
     const tokens = scanned.flatMap((arg) => [arg, ...arg.split(/\s+/)]);
     for (const [isBanned, what] of banned) {
@@ -254,8 +255,8 @@ test('no operation the agent tier drives sends a vote, over ssh, git or HTTP', a
     for (const refspec of args.filter((arg) => arg.includes('refs/for/'))) {
       const options = refspec.includes('%') ? refspec.slice(refspec.indexOf('%') + 1).split(',') : [];
       for (const option of options) {
-        assert.match(option, /^topic=/,
-          `${op} pushed ${refspec}: the only push option allowed is a topic, and ${option} is not one. ${WHY}`);
+        assert.match(option, /^(?:topic=.+|wip)$/,
+          `${op} pushed ${refspec}: only a topic or wip is allowed, and ${option} is not. ${WHY}`);
       }
     }
   }
