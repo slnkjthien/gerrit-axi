@@ -9,14 +9,6 @@ here is its GitHub Release notes, above the list of pull requests it merged.
 
 ## [Unreleased]
 
-### Added
-
-- `gerrit-axi publish --wip` publishes changes as work in progress.
-- `gerrit-axi ready <change>` activates an existing work-in-progress change.
-- `gerrit-axi wip <change>` marks an existing change work in progress.
-
-See [Work in progress](docs/agent-tier.md#work-in-progress) for guards and readback semantics.
-
 ## [0.5.0]
 
 ### Added
@@ -34,6 +26,12 @@ See [Work in progress](docs/agent-tier.md#work-in-progress) for guards and readb
   commit was dropped before publishing again, with a `help` line to review and
   abandon them. Nothing is abandoned. If the server cannot be asked, the publish
   still succeeds and `left_behind_warning` says why.
+- `gerrit-axi publish --wip` publishes changes as work in progress.
+- `gerrit-axi ready <change>` activates an existing work-in-progress change.
+- `gerrit-axi wip <change>` marks an existing change work in progress.
+
+See [Work in progress](https://github.com/slnkjthien/gerrit-axi/blob/v0.5.0/docs/agent-tier.md#work-in-progress)
+for guards and readback semantics.
 
 ### Fixed
 
