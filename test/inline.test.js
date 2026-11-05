@@ -415,6 +415,7 @@ test('the text is never taken from argv, and nothing is posted when there is non
       { argv: ['comment', '200101', '--file', FILE], opts: { stdin: 'text' }, error: /comment needs --line <n>/ },
       { argv: ['comment', '200101', '--file', FILE, '--line', '0'], opts: { stdin: 'text' }, error: /--line must be 1 or more/ },
       { argv: ['comment', '200101', '--file', FILE, '--line', 'ten'], opts: { stdin: 'text' }, error: /--line needs a whole number/ },
+      { argv: ['comment', '200101', '--file', FILE, '--line', '99999999999999999999'], opts: { stdin: 'text' }, error: /--line is not a line number: 99999999999999999999/ },
       { argv: ['comment', '200101', ...target, 'Looks fine'], opts: { stdin: 'text' }, error: /not a change number: Looks fine/ },
       { argv: ['comment', '200101', ...target, '--message', 'x'], opts: { stdin: 'text' }, error: /unknown option for comment: --message/ },
       { argv: ['comment', '200101', ...target, '--resolve'], opts: { stdin: 'text' }, error: /unknown option for comment: --resolve/ },

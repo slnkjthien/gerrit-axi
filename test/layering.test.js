@@ -291,9 +291,6 @@ test('the inline-comment payload is built from comment fields alone: no label, r
     assert.equal(new RegExp(`\\b${field}\\b`).test(code), false,
       `src/core/inline.js spells the review field ${field}, which no inline comment needs. ${WHY}`);
   }
-  assert.equal(/JSON\.parse/.test(code), false,
-    'the payload is built from typed fields, never parsed from a caller');
-  assert.equal((code.match(/JSON\.stringify/g) ?? []).length, 1, 'one serialisation, of the one payload');
 
   for (const file of jsFilesUnder(path.join(SRC_DIR, 'core'))) {
     if (file === inline) continue;

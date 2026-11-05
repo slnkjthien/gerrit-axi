@@ -880,6 +880,7 @@ export async function opComment({ session, args, stdin }) {
   }
   const line = positiveInt(flags['--line'], 0, '--line');
   if (line < 1) throw new UsageError(`--line must be 1 or more, got: ${line}`, undefined, shape);
+  if (!Number.isSafeInteger(line)) throw new UsageError(`--line is not a line number: ${flags['--line']}`, undefined, shape);
   const text = await readBody({ op: 'comment', option: '--body', value: flags['--body'], stdin, help: shape });
 
   const posted = await postInlineComment(session, numbers[0], { file, line, text });
