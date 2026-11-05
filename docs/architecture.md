@@ -80,6 +80,10 @@ Three channels, each necessary:
   `buildMessageArgs` in `src/core/message.js` builds the fixed message command.
   It has no parameter for another option.
   The text travels as one single-quoted word, so it cannot become another option or a shell command.
+  It also carries the inline-comment and reply writes.
+  `buildInlineArgs` in `src/core/inline.js` builds the fixed `gerrit review --json` command.
+  `buildReviewInput` there assembles the review document that command reads, from typed fields.
+  The document goes on ssh's stdin, never on a command line, and names no field but a comment's.
   See [Work in progress](agent-tier.md#work-in-progress) for activation guards
   and readback over REST.
 - **REST** - `https://<host>/a/...` with Basic auth, for reads and fixed writes.

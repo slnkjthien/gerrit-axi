@@ -45,23 +45,28 @@ fails if any of them is broken, which is the intended way to find out.
   `src/core/ssh.js`, so a transport built on the resolved config inherits it; one
   taking a connection from anywhere else must call it itself.
 - Nothing can vote.
-  The only writes are `gerrit-axi publish`, `submit`, `message`, `ready`, and
-  `wip`. Publish builds one push to `refs/for/` in `buildPushArgs` in
-  `src/core/publish.js`. Submit makes one POST in `restSubmit` in
-  `src/core/rest.js`. Message builds one `gerrit review --message` command in
-  `buildMessageArgs` in `src/core/message.js`. Ready and WIP use their dedicated
-  REST endpoints. State guards and readback live in `src/core/ready.js`, with
+  The only writes are `gerrit-axi publish`, `submit`, `message`, `comment`,
+  `reply`, `ready`, and `wip`. Publish builds one push to `refs/for/` in
+  `buildPushArgs` in `src/core/publish.js`. Submit makes one POST in
+  `restSubmit` in `src/core/rest.js`. Message builds one `gerrit review
+  --message` command in `buildMessageArgs` in `src/core/message.js`. Comment
+  and reply build one `gerrit review --json` command in `buildInlineArgs` in
+  `src/core/inline.js`; `buildReviewInput` there assembles its ReviewInput from
+  typed fields, and the payload travels on ssh's stdin. Ready and WIP use their
+  dedicated REST endpoints. State guards and readback live in `src/core/ready.js`, with
   fixed REST writes in `src/core/rest.js`; the human `gerrit` stays read-only.
-  Only `src/core/message.js` may build `gerrit review` argv, with no parameter
-  for arbitrary options or JSON.
+  Only `src/core/message.js` and `src/core/inline.js` may build `gerrit review`
+  argv, with no parameter for arbitrary options or JSON; only `inline.js` may
+  build a ReviewInput, and it spells no field of one but a comment's.
   A REST `/review` or `/votes` path, `set-reviewers`, `set-topic`, and a label option
   on a push may not appear anywhere.
-  The layering test's whole-source scan exempts only the message module for
-  spelling the command in its implementation.
+  The layering test's whole-source scan exempts only those two modules for
+  spelling the command in their implementation, and holds `inline.js` to
+  comment fields.
   That scan reads source text on purpose: a security invariant needs a whole-source claim.
-  `test/message.test.js` and `test/vote-ban.test.js` are its runtime complement
-  and pin the writes by running them; keep both.
-  Those five are the only writes to Gerrit by design: add no other.
+  `test/message.test.js`, `test/inline.test.js` and `test/vote-ban.test.js` are
+  its runtime complement and pin the writes by running them; keep all three.
+  Those seven are the only writes to Gerrit by design: add no other.
 - `gerrit-axi setup` (`src/axi/setup.js`) is the only code that writes an agent's
   configuration, and only when a person runs it; no other command may touch those
   files. Removal matches our hook by command (`gerrit-axi ... dashboard

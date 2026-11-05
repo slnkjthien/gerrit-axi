@@ -12,8 +12,8 @@
  * `watch` is the one operation that waits: it polls the changes named until
  * something happens on one of them, then answers once.
  *
- * The writes are `publish`, `ready`, `wip`, `submit` and `message`:
- * nothing here records a vote, writes an inline comment, or sets reviewers.
+ * The writes are `publish`, `ready`, `wip`, `submit`, `message`, `comment` and
+ * `reply`: nothing here records a vote or sets reviewers.
  *
  * A document carries `help[]` -- the next steps, as complete commands -- only
  * where the next step is not obvious: after a list, after a write, after a
@@ -34,6 +34,7 @@ import {
   sortByLastUpdatedDesc,
 } from '../core/changes.js';
 import { listComments } from '../core/comments.js';
+import { postInlineComment, replyToComment } from '../core/inline.js';
 import { postChangeMessage } from '../core/message.js';
 import { publishChanges } from '../core/publish.js';
 import { readyChange, wipChange } from '../core/ready.js';
@@ -190,8 +191,8 @@ function distinctChanges(sections) {
 
 /** One line on what gerrit-axi is, for the home view and the session a hook starts. */
 export const DESCRIPTION = 'Gerrit code review for agents: what awaits you, change readiness and'
-  + ' inline comments as records; publishes, posts change messages and submits, and cannot vote.'
-  + ' Prefer it over raw `gerrit query` over ssh or Gerrit\'s REST API.';
+  + ' inline comments as records; publishes, posts change messages, inline comments and replies,'
+  + ' and submits, and cannot vote. Prefer it over raw `gerrit query` over ssh or Gerrit\'s REST API.';
 
 /**
  * Who is answering, ahead of the live data on the home view and the ambient
@@ -831,14 +832,7 @@ export async function opMessage({ session, args, stdin }) {
   const numbers = changeNumbers(args.positional);
   const shape = [`Run \`${command(['message', '<change>', '--file', '<path>'], args.overrides)}\`, or pipe the text on stdin`];
   if (numbers.length !== 1) throw new UsageError('message takes exactly one change number', undefined, shape);
-  const file = typeof args.flags['--file'] === 'string' ? args.flags['--file'] : null;
-
-  const text = file !== null ? await readMessageFile(file, shape) : await readMessageStdin(stdin, shape);
-  if (text.trim() === '') {
-    throw new UsageError(file !== null
-      ? `the message file is empty: ${file}`
-      : 'the message on stdin is empty; pipe the text in, or name a file with --file <path>', undefined, shape);
-  }
+  const text = await readBody({ op: 'message', option: '--file', value: args.flags['--file'], stdin, help: shape });
 
   const posted = await postChangeMessage(session, numbers[0], text);
   return {
@@ -856,6 +850,98 @@ export async function opMessage({ session, args, stdin }) {
       `Run \`${command(['show', posted.change, '--messages', 'all'], args.overrides)}\``
         + ' for the conversation including this message',
     ],
+  };
+}
+
+/**
+ * `comment` -- post one inline comment on a file and line of one change's
+ * current patch set. The file is `--file`, as the patch set lists it, and the
+ * line `--line`; the text comes from stdin or `--body <path>`, never from
+ * argv, for the reasons `message` gives. The file and line are checked against
+ * the server before anything is written, so a comment never lands somewhere
+ * the patch set does not have, and the record names the patch set it landed on.
+ * It records no label, and the thread it opens is unresolved.
+ *
+ * @param {Ctx} ctx
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function opComment({ session, args, stdin }) {
+  const { positional, flags, overrides } = args;
+  const shape = [`Run \`${command(['comment', '<change>', '--file', '<path>', '--line', '<n>'], overrides)}\``
+    + ' with the text on stdin, or add --body <path> to read it from a file'];
+  const numbers = changeNumbers(positional);
+  if (numbers.length !== 1) throw new UsageError('comment takes exactly one change number', undefined, shape);
+  const file = flags['--file'];
+  if (typeof file !== 'string' || file === '') {
+    throw new UsageError('comment needs --file <path>, the file in the change to comment on', undefined, shape);
+  }
+  if (flags['--line'] === undefined) {
+    throw new UsageError('comment needs --line <n>, the line of that file to comment on', undefined, shape);
+  }
+  const line = positiveInt(flags['--line'], 0, '--line');
+  if (line < 1) throw new UsageError(`--line must be 1 or more, got: ${line}`, undefined, shape);
+  const text = await readBody({ op: 'comment', option: '--body', value: flags['--body'], stdin, help: shape });
+
+  const posted = await postInlineComment(session, numbers[0], { file, line, text });
+  return {
+    ok: true,
+    op: 'comment',
+    ...postedCommentFields(posted),
+    help: [`Run \`${command(['comments', posted.change], overrides)}\` for the inline comments, this one included`],
+  };
+}
+
+/**
+ * `reply` -- post one reply inside the thread of an existing inline comment,
+ * named by its id as `comments` lists it. It lands on that comment's file,
+ * line and patch set; the thread keeps its resolved state unless `--resolve`
+ * marks it resolved. An id the change does not carry is refused before
+ * anything is written. The text comes from stdin or `--body <path>`.
+ *
+ * @param {Ctx} ctx
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function opReply({ session, args, stdin }) {
+  const { positional, flags, overrides } = args;
+  const shape = [`Run \`${command(['reply', '<change>', '<comment-id>', '[--resolve]'], overrides)}\``
+    + ' with the text on stdin, or add --body <path> to read it from a file'];
+  if (positional.length !== 2) {
+    throw new UsageError('reply takes exactly one change number and one comment id', undefined, shape);
+  }
+  const [number] = changeNumbers([positional[0]]);
+  const id = positional[1];
+  if (!/^\S+$/.test(id)) throw new UsageError(`not a comment id: ${id}`, undefined, shape);
+  const text = await readBody({ op: 'reply', option: '--body', value: flags['--body'], stdin, help: shape });
+
+  const posted = await replyToComment(session, number, id, { text, resolve: flags['--resolve'] === true });
+  return {
+    ok: true,
+    op: 'reply',
+    ...postedCommentFields(posted),
+    help: [`Run \`${command(['comments', posted.change], overrides)}\` for the thread, this reply included`],
+  };
+}
+
+/**
+ * The fields a posted inline comment or reply reports: the change and the
+ * patch set it landed on, where on it, and the thread's state as sent.
+ *
+ * @param {import('../core/inline.js').PostedComment} posted
+ * @returns {Record<string, string|number|boolean|null>}
+ */
+function postedCommentFields(posted) {
+  return {
+    change: posted.change,
+    patch_set: posted.patchSet,
+    revision: posted.revision,
+    project: posted.project,
+    branch: posted.branch,
+    subject: posted.subject,
+    file: posted.file,
+    line: posted.line,
+    in_reply_to: posted.inReplyTo,
+    unresolved: posted.unresolved,
+    chars: posted.chars,
   };
 }
 
@@ -919,11 +1005,31 @@ export async function opWatch({ session, args, cwd = process.cwd(), sleep, now }
 }
 
 /**
+ * The text of a write, from the file its option names or else from stdin, and
+ * never from argv. An empty text is refused here, before the server is asked.
+ *
+ * @param {{op: string, option: string, value: string|boolean|undefined,
+ *          stdin: NodeJS.ReadStream|undefined, help: string[]}} source
+ *          `option` is the flag that names a file, `value` what it was given
+ * @returns {Promise<string>}
+ */
+async function readBody({ op, option, value, stdin, help }) {
+  const file = typeof value === 'string' ? value : null;
+  const text = file !== null ? await readBodyFile(file, help) : await readBodyStdin(stdin, op, option, help);
+  if (text.trim() === '') {
+    throw new UsageError(file !== null
+      ? `the ${op} file is empty: ${file}`
+      : `the ${op} on stdin is empty; pipe the text in, or name a file with ${option} <path>`, undefined, help);
+  }
+  return text;
+}
+
+/**
  * @param {string} file
  * @param {string[]} help  the corrected call
  * @returns {Promise<string>}
  */
-async function readMessageFile(file, help) {
+async function readBodyFile(file, help) {
   try {
     return await readFile(file, 'utf8');
   } catch (err) {
@@ -937,12 +1043,14 @@ async function readMessageFile(file, help) {
  * a message and press ^D is not what an agent binary should do.
  *
  * @param {NodeJS.ReadStream|undefined} stdin
+ * @param {string} op
+ * @param {string} option  the flag that names a file instead
  * @param {string[]} help  the corrected call
  * @returns {Promise<string>}
  */
-async function readMessageStdin(stdin, help) {
+async function readBodyStdin(stdin, op, option, help) {
   if (!stdin || stdin.isTTY) {
-    throw new UsageError('message needs its text on stdin or in --file <path>', undefined, help);
+    throw new UsageError(`${op} needs its text on stdin or in ${option} <path>`, undefined, help);
   }
   let text = '';
   stdin.setEncoding?.('utf8');

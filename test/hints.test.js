@@ -364,9 +364,46 @@ test('message follows the post with the conversation it joined', async () => {
     ['Run `gerrit-axi message <change> --file <path>`, or pipe the text on stdin']);
 });
 
+test('comment and reply follow the post with the comments they joined', withToken(async () => {
+  const routes = [
+    { path: /\/changes\/200101\?o=CURRENT_REVISION&o=CURRENT_FILES$/, body: fixture('change-files-200101.txt') },
+    { path: /\/files\/[^/]+\/content$/, body: Buffer.from('package acme;\n\nclass QueueReader {\n}\n').toString('base64') },
+    { path: /\/changes\/200103\?o=ALL_REVISIONS$/, body: fixture('change-revisions-200103.txt') },
+    { path: /\/changes\/200103\/comments$/, body: fixture('comments-stack.txt') },
+  ];
+  const comment = await runJson(
+    ['comment', '200101', '--file', 'src/main/java/com/acme/widget/QueueReader.java', '--line', '3',
+      '--host', 'review.example.org'],
+    { fetchRoutes: routes, stdin: 'Bound too early.\n' },
+  );
+  assert.equal(comment.code, EXIT.ok, JSON.stringify(comment.document));
+  assert.deepEqual(comment.document.help,
+    ['Run `gerrit-axi comments 200101 --host review.example.org` for the inline comments, this one included']);
+
+  const reply = await runJson(['reply', '200103', 'stk0002', '--resolve'], { fetchRoutes: routes, stdin: 'Fixed.\n' });
+  assert.equal(reply.code, EXIT.ok, JSON.stringify(reply.document));
+  assert.deepEqual(reply.document.help, ['Run `gerrit-axi comments 200103` for the thread, this reply included']);
+
+  // An id the change does not carry points at the read that lists the ids.
+  const missing = await runJson(['reply', '200103', 'nope0001'], { fetchRoutes: routes, stdin: 'Fixed.\n' });
+  assert.equal(missing.document.code, 'NO_SUCH_COMMENT');
+  assert.deepEqual(missing.document.help,
+    ['Run `gerrit-axi comments 200103` for the ids of the comments the change carries']);
+
+  // A file the patch set does not have is answered by its remedy, which lists
+  // the files, and by no command.
+  const nowhere = await runJson(['comment', '200101', '--file', 'nowhere.txt', '--line', '1'],
+    { fetchRoutes: routes, stdin: 'x' });
+  assert.equal(nowhere.document.code, 'FILE_NOT_IN_PATCH_SET');
+  assert.match(nowhere.document.remedy, /Files in patch set 4: /);
+  assert.equal('help' in nowhere.document, false);
+}));
+
 test('a usage error names the corrected call; an unknown option already has its remedy and gets none', async () => {
   const cases = [
     [['show'], ['Run `gerrit-axi show <change>... [--messages <n|all>] [--comments]`']],
+    [['comment', '200101'], ['Run `gerrit-axi comment <change> --file <path> --line <n>` with the text on stdin, or add --body <path> to read it from a file']],
+    [['reply', '200101'], ['Run `gerrit-axi reply <change> <comment-id> [--resolve]` with the text on stdin, or add --body <path> to read it from a file']],
     [['comments'], ['Run `gerrit-axi comments <change>... [--bots | --humans]`']],
     [['submit'], ['Run `gerrit-axi submit <change>`']],
     [['publish'], ['Run `gerrit-axi publish --stack --topic <t>` or `gerrit-axi publish --squash` to propose the commits on HEAD']],
@@ -387,7 +424,8 @@ test('a usage error names the corrected call; an unknown option already has its 
   assert.equal(nope.document.code, 'BAD_USAGE');
   assert.equal(nope.document.help.length, 1);
   assert.match(nope.document.help[0], /^Run one of: `gerrit-axi`, `gerrit-axi status`, `gerrit-axi show <change>\.\.\.`, /);
-  assert.match(nope.document.help[0], /`gerrit-axi message <change>`, `gerrit-axi watch <change>\.\.\.`, `gerrit-axi setup hooks`$/);
+  assert.match(nope.document.help[0],
+    /`gerrit-axi message <change>`, `gerrit-axi comment <change> --file <path> --line <n>`, `gerrit-axi reply <change> <comment-id>`, `gerrit-axi watch <change>\.\.\.`, `gerrit-axi setup hooks`$/);
   assert.equal(nope.document.help[0].includes('--help'), false);
 });
 

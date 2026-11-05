@@ -1,6 +1,6 @@
 ---
 name: gerrit-axi
-description: "Work with Gerrit code review through the gerrit-axi CLI: what awaits you, where a change stands (labels, votes, what blocks submit), inline review comments with bots split from humans, waiting for a vote, patch set, comment or status change on a change, publishing a branch as a stack or one change, posting a change message, and submitting. Use whenever a task touches a Gerrit change or a checkout whose origin is a Gerrit remote. It cannot vote."
+description: "Work with Gerrit code review through the gerrit-axi CLI: what awaits you, where a change stands (labels, votes, what blocks submit), inline review comments with bots split from humans, waiting for a vote, patch set, comment or status change on a change, publishing a branch as a stack or one change, posting a change message, an inline comment on a line, or a reply inside a comment thread, and submitting. Use whenever a task touches a Gerrit change or a checkout whose origin is a Gerrit remote. It cannot vote."
 user-invocable: false
 ---
 
@@ -12,8 +12,9 @@ complete commands.
 
 The binary has to be installed first (see the project README's Install
 section); it is not on npm, so `npx` will not find it. It talks to Gerrit over
-SSH, so the user's SSH key must be registered there. REST calls (inline
-comments, submit, ready, and wip) also need a stored token. If a record says the
+SSH, so the user's SSH key must be registered there. REST calls (reading inline
+comments, and the reads before `comment` and `reply` write, submit, ready, and
+wip) also need a stored token. If a record says the
 user is not signed in, ask them to run `gerrit auth login` themselves. Never
 handle a token yourself.
 
@@ -48,6 +49,9 @@ gerrit-axi wip <change>              mark an existing change WIP over REST
     --revision <sha>                refuse a different current revision
 gerrit-axi submit <change>           ask the server to submit one change
 gerrit-axi message <change>          post one change message, text on stdin or --file
+gerrit-axi comment <change> --file <path> --line <n>   one inline comment on the current patch set
+gerrit-axi reply <change> <comment-id> [--resolve]     reply inside a thread, resolving it or not
+    --body <path>                    text from a file instead of stdin, for both
 gerrit-axi watch <change>...         wait for a vote, patch set, comment or status change
     --timeout <secs> --since <base>  give up after a while; resume from a baseline
 gerrit-axi setup hooks               opt in to a dashboard summary at every session start
@@ -74,6 +78,13 @@ Run `gerrit-axi --help` for every option.
 - `submit` only a change the server marks submittable; a refusal comes back in
   the server's own words. A change that has already merged is a success with
   `already_merged: true`.
+- Put a finding on the line it concerns with `comment`, and answer a point
+  inside the thread it was raised in with `reply`, `--resolve` when it is
+  settled; keep `message` for what has no line. A reader answers a short inline
+  comment in place, while one long change message hides the sentence that
+  answers a point. Both refuse a file, line or comment id the change does not
+  have, so take the file path and the comment `id` from `show --comments` or
+  `comments`.
 - `status` rows are short (`change`, `subject`, `status`, `submit`); use `show`
   for labels, votes and what blocks a change, or `status --fields` to add columns.
 - `publish` keeps every Change-Id a commit already has. Never edit or strip one:

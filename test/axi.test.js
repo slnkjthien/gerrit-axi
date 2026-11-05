@@ -368,6 +368,12 @@ test('a failure is a typed record on stdout, never prose, and stderr stays empty
     { argv: ['submit'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['submit', '200101', '200102'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
     { argv: ['submit', 'HEAD'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    // An inline comment names its file and line, and a reply its comment, before
+    // any text is read; test/inline.test.js drives the text itself.
+    { argv: ['comment', '200101'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['comment', '200101', '--file', 'a.txt'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['comment', '200101', '--file', 'a.txt', '--line', '0'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
+    { argv: ['reply', '200101'], code: EXIT.usage, error: 'BAD_USAGE', kind: 'usage' },
   ];
   for (const expected of cases) {
     const { code, out, err } = await run(expected.argv);
@@ -396,6 +402,8 @@ test('an unknown option is refused by name, before any call, with the command\'s
     { argv: ['publish', '--squash', '--nonsense'], op: 'publish' },
     { argv: ['submit', '200101', '--nonsense'], op: 'submit' },
     { argv: ['message', '200101', '--nonsense'], op: 'message' },
+    { argv: ['comment', '200101', '--file', 'a.txt', '--line', '1', '--nonsense'], op: 'comment' },
+    { argv: ['reply', '200101', 'stk0002', '--nonsense'], op: 'reply' },
   ];
   for (const { argv, op } of cases) {
     const { code, out, err, runner } = await run([...argv, '--json']);

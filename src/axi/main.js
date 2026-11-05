@@ -15,11 +15,13 @@ import { createSession } from '../core/session.js';
 import { parseArgs } from './args.js';
 import {
   opAuth,
+  opComment,
   opComments,
   opDashboard,
   opMessage,
   opPublish,
   opReady,
+  opReply,
   opShow,
   opStatus,
   opSubmit,
@@ -57,6 +59,8 @@ const OPS = {
   wip: opWip,
   submit: opSubmit,
   message: opMessage,
+  comment: opComment,
+  reply: opReply,
   watch: opWatch,
   setup: opSetup,
 };

@@ -46,6 +46,13 @@ gerrit-axi submit <change>             ask the server to submit one change
 gerrit-axi message <change>            post one change-level message on the current patch set
     --file <path>                      read the text from a file instead of stdin
 
+gerrit-axi comment <change>            post one inline comment on the current patch set
+    --file <path> --line <n>           the file, as the patch set lists it, and its line
+    --body <path>                      read the text from a file instead of stdin
+gerrit-axi reply <change> <comment-id> reply inside an existing comment thread
+    --resolve                          mark the thread resolved
+    --body <path>                      read the text from a file instead of stdin
+
 gerrit-axi watch <change>...           wait until something changes on any change named
     --interval <secs>                  seconds between polls (default 60, at least 15)
     --timeout <secs>                   give up after this long, with exit 6
@@ -163,7 +170,8 @@ help[2]: Run `gerrit-axi show <change>... --comments` for the full review state 
 
 A document ends with `help[]`, the next steps as complete commands, only where
 the next step is not obvious: after a list (`status`), after a write (`publish`,
-`message`, a `submit` the server did not report as merged), after a `watch`, and
+`message`, `comment`, `reply`, a `submit` the server did not report as merged),
+after a `watch`, and
 whenever something was held back. A detail view that answers whole, such as `show`, and a
 confirmation, such as `ready` or a merged `submit`, carry none, and the key is absent
 rather than empty. A failure's `help[]` is the command that fixes or diagnoses it,
@@ -477,8 +485,81 @@ help[1]: Run `gerrit-axi show 200101 --messages all` for the conversation includ
 The change is looked up first, so the message is addressed to the patch set the
 server has and the record names it. A change the server does not return is a
 `NOT_FOUND` error record; a refusal by Gerrit — a closed change, a missing
-permission — is `MESSAGE_REFUSED`, in the server's words. Inline, line-anchored
-comments, replies to threads, and reviewers are not part of this command.
+permission — is `MESSAGE_REFUSED`, in the server's words. A comment on a line,
+or a reply in a thread, is [Posting an inline comment](#posting-an-inline-comment);
+reviewers are not part of this tool.
+
+## Posting an inline comment
+
+`comment <change> --file <path> --line <n>` posts one inline comment, the kind
+`comments` reads back, on a file and line of the change's current patch set,
+and `reply <change> <comment-id>` posts one inside the thread of an existing
+comment. Both read the text from stdin or `--body <path>`, never from argv, as
+`message` does, and refuse an empty text. Neither records a label: both run
+Gerrit's `review` command in its `--json` form, which reads a review document
+from stdin, and the only document this tool ever builds holds one comment and
+nothing else. Short comments on the lines they concern are what a reader
+answers in place, and a reply resolves the thread it answers; a long review
+posted as one change message hides the sentence that answers a point, and gets
+the point raised again.
+
+Nothing is guessed about where a comment lands. `comment` reads the change's
+current patch set and that patch set's files first, then the file, so the
+comment goes on the patch set the server has, and a file or line it does not
+have is refused before anything is written: a file the patch set does not list
+is `FILE_NOT_IN_PATCH_SET`, with the files it does list in `remedy`, and a line
+past the end of the file, or on a file with no lines there (deleted in that
+patch set, or binary), is `LINE_NOT_IN_FILE`. The thread a new comment opens is
+unresolved. The record names the patch set it landed on:
+
+```console
+$ echo 'This default is read before the provider is bound.' | gerrit-axi comment 200101 --file src/main/java/com/acme/widget/QueueReader.java --line 3
+ok: true
+op: comment
+change: 200101
+patch_set: 4
+revision: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+project: acme/apps/widget-console
+branch: main
+subject: Split the queue reader out of the daemon
+file: src/main/java/com/acme/widget/QueueReader.java
+line: 3
+in_reply_to: null
+unresolved: true
+chars: 50
+help[1]: Run `gerrit-axi comments 200101` for the inline comments, this one included
+```
+
+`reply` takes the id the `comments` table's `id` column carries, and lands on
+that comment's file, line and patch set, so a thread on an older patch set
+stays one thread; a reply to a change-level comment has no line. An id the
+change does not carry, a draft's or a robot comment's included, is
+`NO_SUCH_COMMENT`, and nothing is written. A thread's resolved state is that of
+its latest comment, and a reply keeps it unless `--resolve` marks the thread
+resolved; the record's `unresolved` is the state as sent:
+
+```console
+$ echo 'Fixed in patch set 2.' | gerrit-axi reply 200103 stk0002 --resolve
+ok: true
+op: reply
+change: 200103
+patch_set: 1
+revision: cccccccccccccccccccccccccccccccccccccccc
+project: acme/apps/widget-console
+branch: main
+subject: Wire the retry ceiling to the managed configuration
+file: src/main/java/com/acme/widget/RetryCeiling.java
+line: 18
+in_reply_to: stk0002
+unresolved: false
+chars: 21
+help[1]: Run `gerrit-axi comments 200103` for the thread, this reply included
+```
+
+Both need the stored token `comments` needs, for their reads; the write itself
+goes over SSH. A refusal by Gerrit is `COMMENT_REFUSED`, in the server's words.
+Drafts, several comments in one call, and editing or deleting a comment are
+not part of either command.
 
 ## Watching changes
 

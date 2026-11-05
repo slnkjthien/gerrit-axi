@@ -188,6 +188,8 @@ test('the core entry point exposes the library API a second binary would import'
     'publishChanges',
     'submitChange',
     'postChangeMessage',
+    'postInlineComment',
+    'replyToComment',
     'GerritError',
   ]) {
     assert.equal(typeof core[name] !== 'undefined', true, `core must export ${name}`);
@@ -198,8 +200,21 @@ test('the core entry point exposes the library API a second binary would import'
   }
 });
 
-/** Only these modules may spell the command that can vote. */
-const REVIEW_MODULES = [path.join(SRC_DIR, 'core', 'message.js')];
+/**
+ * Only these modules may spell the command that can vote: message.js for its
+ * `--message` form, inline.js for its `--json` form.
+ */
+const REVIEW_MODULES = [
+  path.join(SRC_DIR, 'core', 'message.js'),
+  path.join(SRC_DIR, 'core', 'inline.js'),
+];
+
+const WHY = 'gerrit-axi must be structurally unable to vote: a tool that can record an '
+  + 'approval lets an agent manufacture one and submit against it, and the vote reads '
+  + 'as a person having approved. No voting command or voting path may appear anywhere '
+  + 'in the code. This source scan and the runtime check in test/vote-ban.test.js catch '
+  + 'different failures -- this one covers the whole source, that one sees values '
+  + 'assembled at runtime -- and neither is redundant.';
 
 test('voting is structurally impossible: no voting command or voting path exists anywhere', () => {
   // THE PROPERTY THIS TEST HOLDS. gerrit-axi publishes and submits, and it cannot
@@ -221,12 +236,6 @@ test('voting is structurally impossible: no voting command or voting path exists
   // which catches a value assembled at runtime that no grep can see, but only on
   // the paths it drives. This test covers the whole source, which no test that
   // runs code can. Each catches failures the other misses; delete neither.
-  const WHY = 'gerrit-axi must be structurally unable to vote: a tool that can record an '
-    + 'approval lets an agent manufacture one and submit against it, and the vote reads '
-    + 'as a person having approved. No voting command or voting path may appear anywhere '
-    + 'in the code. This source scan and the runtime check in test/vote-ban.test.js catch '
-    + 'different failures -- this one covers the whole source, that one sees values '
-    + 'assembled at runtime -- and neither is redundant.';
   const files = [
     ...jsFilesUnder(SRC_DIR),
     path.join(REPO_ROOT, 'bin', 'gerrit.js'),
@@ -235,9 +244,9 @@ test('voting is structurally impossible: no voting command or voting path exists
   const code = new Map(files.map((file) => [file, stripComments(readFileSync(file, 'utf8'))]));
   const rel = (/** @type {string} */ file) => path.relative(REPO_ROOT, file);
 
-  // No voting vocabulary, in any spelling a caller could reach. The message
-  // module may spell the review command; its runtime test pins argv. Scoring
-  // patterns remain banned.
+  // No voting vocabulary, in any spelling a caller could reach. The message and
+  // inline modules may spell the review command; their runtime tests pin the
+  // argv, and the inline module's payload. Scoring patterns remain banned.
   const votingPaths = [
     [/\bgerrit\b[\s'"`,]*\breview\b/, 'the gerrit review SSH command, as a string or as argv',
       REVIEW_MODULES],
@@ -255,6 +264,43 @@ test('voting is structurally impossible: no voting command or voting path exists
       if (Array.isArray(exempt) && exempt.includes(file)) continue;
       assert.equal(/** @type {RegExp} */ (pattern).test(text), false,
         `${rel(file)} contains ${what} (${pattern}). ${WHY}`);
+    }
+  }
+});
+
+test('the inline-comment payload is built from comment fields alone: no label, reviewer, notify or other review field', () => {
+  // inline.js is the one module that builds a ReviewInput -- the document the
+  // review command reads from stdin, and the same document that carries votes,
+  // reviewers, notification and attention changes. test/vote-ban.test.js pins
+  // the payload it sends; this scan holds its source to the fields a comment
+  // needs, so no other field of that document can be assembled here, whatever
+  // a later change meant by it, and no JSON from a caller is ever parsed into
+  // it. The `--json` form of the review command, which is what makes a payload
+  // possible at all, appears in no other module of the library.
+  const inline = path.join(SRC_DIR, 'core', 'inline.js');
+  const code = stripComments(readFileSync(inline, 'utf8'));
+  assert.match(code, /\bcomments\b/, 'the one key the module exists to build');
+  const foreignFields = [
+    'labels', 'reviewers', 'notify', 'notify_details', 'tag', 'on_behalf_of', 'ready',
+    'work_in_progress', 'add_to_attention_set', 'remove_from_attention_set',
+    'ignore_automatic_attention_set_rules', 'ignore_default_attention_set_rules', 'drafts',
+    'robot_comments', 'omit_duplicate_comments', 'strict_labels', 'reviewer_updates',
+    'response_format_options',
+  ];
+  for (const field of foreignFields) {
+    assert.equal(new RegExp(`\\b${field}\\b`).test(code), false,
+      `src/core/inline.js spells the review field ${field}, which no inline comment needs. ${WHY}`);
+  }
+  assert.equal(/JSON\.parse/.test(code), false,
+    'the payload is built from typed fields, never parsed from a caller');
+  assert.equal((code.match(/JSON\.stringify/g) ?? []).length, 1, 'one serialisation, of the one payload');
+
+  for (const file of jsFilesUnder(path.join(SRC_DIR, 'core'))) {
+    if (file === inline) continue;
+    const text = stripComments(readFileSync(file, 'utf8'));
+    for (const line of text.split('\n')) {
+      assert.equal(/\breview\b/.test(line) && /--json/.test(line), false,
+        `${path.relative(REPO_ROOT, file)} spells the review command's --json form: ${line.trim()}. ${WHY}`);
     }
   }
 });

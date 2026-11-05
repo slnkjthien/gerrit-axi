@@ -12,19 +12,21 @@ records for an agent. They are siblings, not wrappers — see
 
 **It cannot vote.**
 `gerrit`, for a person, is read-only: every operation is a query.
-`gerrit-axi` adds five writes for agents:
+`gerrit-axi` adds seven writes for agents:
 
 - `publish` pushes to `refs/for/<branch>`.
 - `ready` activates a work-in-progress change.
 - `wip` marks an existing change work in progress.
 - `message` posts one change-level message with no label.
+- `comment` posts one inline comment on a file and line of the current patch set.
+- `reply` answers inside an existing comment thread, resolving it on request.
 - `submit` makes one REST call the server may refuse.
 
-It never votes, writes an inline comment, sets reviewers, or abandons.
+It never votes, sets reviewers, or abandons.
 Gerrit evaluates its submit rules on the server and refuses a change without the required approvals.
 The tests forbid REST review endpoints and label push options throughout the codebase.
-Only `message.js` may build the SSH review command, with fixed options and a
-runtime test that pins its arguments and payload.
+Only `message.js` and `inline.js` may build the SSH review command, each with
+fixed options and a runtime test that pins its arguments and payload.
 The binding control remains the label permissions your server grants the account an agent uses.
 
 Publish work in progress with either shape:
@@ -232,7 +234,8 @@ read -rs T && printf %s "$T" | gerrit auth login --stdin && unset T
 
 - [The agent tier](docs/agent-tier.md) — `gerrit-axi`'s records, next steps, the
   dashboard, session integration, inline comments, publishing, submitting, posting
-  a change message, watching changes, and failures.
+  a change message, posting an inline comment or a reply, watching changes, and
+  failures.
 - [Configuration](docs/configuration.md) — the three tiers: what is derived from
   the server, what from the repo, and the little that is configured.
 - [Architecture](docs/architecture.md) — the core library, the two binaries over
