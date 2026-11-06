@@ -35,6 +35,7 @@ export const PATCHSET_LEVEL_FILE = '/PATCHSET_LEVEL';
  * @property {number|null} patchSet
  * @property {string|null} id
  * @property {string|null} inReplyTo
+ * @property {'REVISION'|'PARENT'} side  which side of the diff it is on; REVISION unless the server says PARENT
  * @property {string} message
  * @property {Date|null} updated
  * @property {{name: string|null, username: string|null, email: string|null}|null} author
@@ -90,6 +91,7 @@ export function normalizeComments(byFile) {
         patchSet: Number.isFinite(Number(raw?.patch_set)) ? Number(raw.patch_set) : null,
         id: raw?.id ?? null,
         inReplyTo: raw?.in_reply_to ?? null,
+        side: raw?.side === 'PARENT' ? 'PARENT' : 'REVISION',
         message: raw?.message ?? '',
         updated: parseGerritTimestamp(raw?.updated),
         author: raw?.author

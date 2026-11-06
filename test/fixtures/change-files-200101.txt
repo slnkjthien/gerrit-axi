@@ -1,0 +1,34 @@
+)]}'
+{
+  "id": "acme%2Fapps%2Fwidget-console~main~Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "project": "acme/apps/widget-console",
+  "branch": "main",
+  "topic": "stack-of-three",
+  "change_id": "Iaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "subject": "Split the queue reader out of the daemon",
+  "status": "NEW",
+  "created": "2026-07-20 08:26:40.000000000",
+  "updated": "2026-07-31 22:13:20.000000000",
+  "insertions": 23,
+  "deletions": 70,
+  "_number": 200101,
+  "owner": { "_account_id": 1001, "name": "Ada Lovelace", "email": "ada@example.com", "username": "ada" },
+  "current_revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "revisions": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
+      "kind": "REWORK",
+      "_number": 4,
+      "created": "2026-07-31 21:13:20.000000000",
+      "uploader": { "_account_id": 1001 },
+      "ref": "refs/changes/01/200101/4",
+      "fetch": {},
+      "files": {
+        "/COMMIT_MSG": { "status": "A", "lines_inserted": 9, "size_delta": 312, "size": 312 },
+        "src/main/java/com/acme/widget/QueueReader.java": { "status": "A", "lines_inserted": 12, "size_delta": 410, "size": 410 },
+        "src/main/java/com/acme/widget/Daemon.java": { "lines_inserted": 2, "lines_deleted": 40, "size_delta": -1180, "size": 2210 },
+        "docs/queue.md": { "status": "D", "lines_deleted": 30, "size_delta": -900, "size": 0 },
+        "assets/queue.png": { "status": "A", "binary": true, "size_delta": 4096, "size": 4096 }
+      }
+    }
+  }
+}

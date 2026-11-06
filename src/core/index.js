@@ -37,6 +37,8 @@
  *     const publication = await publishChanges(session, { shape: 'stack', topic: 'retry' });
  *     const active = await readyChange(session, 184458);
  *     const posted = await postChangeMessage(session, 184458, 'What the fix changed...');
+ *     const inline = await postInlineComment(session, 184458, { file: 'src/Main.java', line: 18, text: '...' });
+ *     const reply = await replyToComment(session, 184458, inline.inReplyTo ?? '<id>', { text: 'Fixed.', resolve: true });
  *     const merged = await submitChange(session, 184458);   // the server may refuse
  */
 
@@ -150,6 +152,15 @@ export {
 } from './watch.js';
 
 export { buildMessageArgs, postChangeMessage, quoteForGerrit } from './message.js';
+
+export {
+  buildInlineArgs,
+  buildReviewInput,
+  lineCount,
+  postInlineComment,
+  replyToComment,
+  threadUnresolved,
+} from './inline.js';
 
 export { AuthError, ConfigError, GerritError, TransportError } from './errors.js';
 

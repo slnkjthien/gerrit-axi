@@ -10,7 +10,7 @@
  * for the global options rather than repeating their descriptions.
  */
 
-export const USAGE = `gerrit-axi - Gerrit for agents: your dashboard, review state as records, watch, publish, ready, wip, message, and submit
+export const USAGE = `gerrit-axi - Gerrit for agents: your dashboard, review state as records, watch, publish, ready, wip, message, comment, reply, and submit
 
 usage: gerrit-axi [<command>] [options]
        gerrit-axi <command> --help     that command's options and examples
@@ -31,8 +31,8 @@ is close.
 
 A record ends with help[] -- the next steps, as complete commands carrying this
 call's --host and its siblings -- only where the next step is not obvious: after
-a list, after publish, submit, message or watch, and whenever something was held
-back.
+a list, after publish, submit, message, comment, reply or watch, and whenever
+something was held back.
 A detail view or a confirmation carries none. A failure's help[] is the command
 that fixes or diagnoses it, when there is one.
 
@@ -82,6 +82,23 @@ commands, and the options each one takes:
                               current patch set; the text is read from stdin
       --file <path>           ...or from this file. Never from argv. No label,
                               no vote: the record names the patch set it landed on
+  comment <change>            post one inline comment on a file and line of the
+                              change's current patch set, opening an unresolved
+                              thread; the text is read from stdin
+      --file <path>           the file, as the patch set lists it (required)
+      --line <n>              the line of that file (required). A file or line
+                              the patch set does not have is refused before
+                              anything is written
+      --body <path>           read the text from this file instead of stdin.
+                              Never from argv. No label, no vote: the record
+                              names the patch set it landed on
+  reply <change> <id>         reply inside the thread of the inline comment with
+                              that id, as comments lists it: on its file, line
+                              and patch set; the text is read from stdin
+      --resolve               mark the thread resolved; without it the thread
+                              keeps the state it had
+      --body <path>           read the text from this file instead of stdin.
+                              Never from argv. No label, no vote
   watch <change>...           wait until a vote, a patch set, a cover message, an
                               inline comment or the status changes on any change
                               named, then print one record of what and who
@@ -132,9 +149,9 @@ Change-Id is what makes a push a new patch set of the same change. A commit
 without one gets one stamped into its message, and the local branch is rewritten
 to keep it (messages only; the working tree is untouched).
 
-It publishes, posts a change message, and submits, and it cannot vote: no command
-records a label, and whether a change may be submitted is decided by the server
-alone.`;
+It publishes, posts change messages, inline comments and replies, and submits, and
+it cannot vote: no command records a label, and whether a change may be submitted
+is decided by the server alone.`;
 
 /**
  * One page per command, keyed as `COMMAND_OPTIONS` is.
@@ -365,6 +382,61 @@ global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
 examples:
   echo 'Rebased onto the fix; ready for another look.' | gerrit-axi message 12345
   gerrit-axi message 12345 --file reply.txt`,
+  comment: `gerrit-axi comment - post one inline comment on a file and line of a change's current patch set
+
+usage: gerrit-axi comment <change> --file <path> --line <n> [--body <path>]
+
+arguments:
+  <change>                exactly one change number (required)
+
+options:
+  --file <path>           the file to comment on, as the patch set lists it
+                          (required)
+  --line <n>              the line of that file to comment on, 1 or more
+                          (required)
+  --body <path>           read the text from this file; without it the text is
+                          read from stdin. Never from argv
+
+The comment goes on the change's current patch set and opens an unresolved
+thread. The file must be in that patch set and the line within the file: both
+are read from the server first, and a file or line it does not have is refused
+before anything is written, naming the files the patch set does have or the
+lines the file has. No label, no vote: the record names the patch set the
+comment landed on. Short comments on the lines they concern are what a reader
+answers in place; a long review belongs in one change message instead.
+
+global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
+  --rest-base <u> (see gerrit-axi --help)
+
+examples:
+  echo 'This default is read before the provider is bound.' | gerrit-axi comment 12345 --file src/Main.java --line 18
+  gerrit-axi comment 12345 --file src/Main.java --line 18 --body note.md`,
+  reply: `gerrit-axi reply - reply inside the thread of an existing inline comment
+
+usage: gerrit-axi reply <change> <comment-id> [--resolve] [--body <path>]
+
+arguments:
+  <change>                exactly one change number (required)
+  <comment-id>            the id of the comment to answer, as the id column of
+                          comments lists it (required)
+
+options:
+  --resolve               mark the thread resolved; without it the thread keeps
+                          the state it had
+  --body <path>           read the text from this file; without it the text is
+                          read from stdin. Never from argv
+
+The reply lands on the file, line and patch set of the comment it answers, so a
+thread on an older patch set stays one thread. A comment id the change does not
+carry is refused before anything is written. No label, no vote: the record names
+the patch set the reply landed on and the thread's state as sent.
+
+global options: --json, --host <h>, --user <u>, --port <p>, --project <p>,
+  --rest-base <u> (see gerrit-axi --help)
+
+examples:
+  echo 'Fixed in patch set 3.' | gerrit-axi reply 12345 7a8d1f3e_6b2c9d0e --resolve
+  gerrit-axi reply 12345 7a8d1f3e_6b2c9d0e --body answer.md`,
   watch: `gerrit-axi watch - wait for something to happen on any of the changes named
 
 usage: gerrit-axi watch <change>... [options]

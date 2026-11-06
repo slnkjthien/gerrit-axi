@@ -132,7 +132,8 @@ function detailFlags(include) {
  * The client half of every ssh argv: port, batch mode, a connect timeout, then
  * the `--` marker and the destination. Past that marker ssh parses no option, so
  * the destination is never one, and every remote word that follows is Gerrit's
- * to read. Exported for `message.js`, which appends its fixed remote words.
+ * to read. Exported for `message.js` and `inline.js`, which append their fixed
+ * remote words.
  *
  * @param {{host: string, port: number, user: string}} conn
  * @param {{connectTimeoutSeconds?: number}} [opts]
@@ -226,15 +227,17 @@ export function parseQueryOutput(stdout) {
 /**
  * Spawn `ssh` with a built argv. A runner that cannot spawn ssh at all is the
  * one failure this turns into an error; an exit status is the caller's to read,
- * because what a non-zero status means depends on the remote command.
+ * because what a non-zero status means depends on the remote command. `input`
+ * goes to the child's stdin, which ssh forwards to the remote command: it is
+ * how inline.js sends a payload that is never a word of any command line.
  *
  * @param {string[]} args
- * @param {{runner?: import('./exec.js').Runner, timeoutMs?: number}} [opts]
+ * @param {{runner?: import('./exec.js').Runner, timeoutMs?: number, input?: string}} [opts]
  * @returns {Promise<import('./exec.js').RunResult>}
  */
-export async function runSsh(args, { runner = runCommand, timeoutMs = 60_000 } = {}) {
+export async function runSsh(args, { runner = runCommand, timeoutMs = 60_000, input } = {}) {
   try {
-    return await runner('ssh', args, { timeoutMs });
+    return await runner('ssh', args, input === undefined ? { timeoutMs } : { timeoutMs, input });
   } catch (err) {
     throw new TransportError('could not run ssh', {
       code: 'SSH_FAILED',

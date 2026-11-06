@@ -9,6 +9,17 @@ here is its GitHub Release notes, above the list of pull requests it merged.
 
 ## [Unreleased]
 
+### Added
+
+- `gerrit-axi comment <change> --file <path> --line <n>` posts one inline
+  comment on a file and line of the change's current patch set, and
+  `gerrit-axi reply <change> <comment-id>` replies inside an existing comment
+  thread, `--resolve` marking it resolved. The text is read from stdin or
+  `--body <path>`, never from argv. A file or line the patch set does not have,
+  or a comment id the change does not carry, is refused before anything is
+  written, and the record names the patch set the comment landed on. Neither
+  records a vote.
+
 ## [0.5.0]
 
 ### Added

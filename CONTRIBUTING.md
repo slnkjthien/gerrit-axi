@@ -54,6 +54,13 @@ injectable, the real code paths run against them. Covered in particular:
   and state flag arriving as one quoted word through a model of Gerrit's own
   tokeniser, the text taken from stdin or a file and never from argv, an empty
   text refused before any round trip, and a refusal carried in the server's words
+- the inline comment and the reply: the argv pinned exactly, the review document
+  on ssh's stdin pinned key by key with a text stuffed with a review document of
+  its own and every scoring flag staying one string, a file or line the patch
+  set does not have and a comment id the change does not carry refused before
+  any write, a reply landing on its thread's patch set and keeping the thread's
+  state unless resolved, and the text taken from stdin or a file and never from
+  argv
 - the layering and no-voting invariants documented in `AGENTS.md`,
   enforced by `test/layering.test.js` and its runtime complements
 

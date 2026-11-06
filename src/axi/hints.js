@@ -37,6 +37,8 @@ export const COMMAND_TEMPLATES = [
   'gerrit-axi wip <change>',
   'gerrit-axi submit <change>',
   'gerrit-axi message <change>',
+  'gerrit-axi comment <change> --file <path> --line <n>',
+  'gerrit-axi reply <change> <comment-id>',
   'gerrit-axi watch <change>...',
   'gerrit-axi setup hooks',
 ];
@@ -204,6 +206,10 @@ export function errorHelp(error, { op, argv, args }) {
     case 'MESSAGE_REFUSED':
       return [`Run \`${command(['show', ...named], overrides)}\` for the change's status;`
         + ' a closed change refuses messages'];
+    case 'COMMENT_REFUSED':
+      return [`Run \`${command(['show', ...named], overrides)}\` for where the change stands`];
+    case 'NO_SUCH_COMMENT':
+      return [`Run \`${command(['comments', ...named], overrides)}\` for the ids of the comments the change carries`];
     default:
       return [];
   }

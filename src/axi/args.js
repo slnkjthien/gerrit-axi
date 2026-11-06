@@ -41,6 +41,8 @@ export const COMMAND_OPTIONS = {
   wip: { withValue: ['--patch-set', '--revision'], boolean: [] },
   submit: { withValue: [], boolean: [] },
   message: { withValue: ['--file'], boolean: [] },
+  comment: { withValue: ['--file', '--line', '--body'], boolean: [] },
+  reply: { withValue: ['--body'], boolean: ['--resolve'] },
   watch: { withValue: ['--interval', '--timeout', '--since'], boolean: [] },
   setup: { withValue: [], boolean: ['--remove'] },
 };

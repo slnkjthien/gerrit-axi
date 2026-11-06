@@ -1,0 +1,34 @@
+)]}'
+{
+  "id": "acme%2Fapps%2Fwidget-console~main~Icccccccccccccccccccccccccccccccccccccccc",
+  "project": "acme/apps/widget-console",
+  "branch": "main",
+  "topic": "stack-of-three",
+  "change_id": "Icccccccccccccccccccccccccccccccccccccccc",
+  "subject": "Wire the retry ceiling to the managed configuration",
+  "status": "NEW",
+  "work_in_progress": true,
+  "created": "2026-07-22 16:00:00.000000000",
+  "updated": "2026-08-04 10:30:00.000000000",
+  "_number": 200103,
+  "owner": { "_account_id": 1001, "name": "Ada Lovelace", "email": "ada@example.com", "username": "ada" },
+  "current_revision": "dddddddddddddddddddddddddddddddddddddddd",
+  "revisions": {
+    "cccccccccccccccccccccccccccccccccccccccc": {
+      "kind": "REWORK",
+      "_number": 1,
+      "created": "2026-08-03 05:46:40.000000000",
+      "uploader": { "_account_id": 1001 },
+      "ref": "refs/changes/03/200103/1",
+      "fetch": {}
+    },
+    "dddddddddddddddddddddddddddddddddddddddd": {
+      "kind": "REWORK",
+      "_number": 2,
+      "created": "2026-08-04 10:30:00.000000000",
+      "uploader": { "_account_id": 1001 },
+      "ref": "refs/changes/03/200103/2",
+      "fetch": {}
+    }
+  }
+}
